@@ -90,6 +90,6 @@ def convert_jsons_by_state_prefix(input_folder, output_folder):
 
 if __name__ == "__main__":
     input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
-    output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson"
+    output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_gemeindeschluessel"
 
     convert_jsons_by_state_prefix(input_folder, output_folder)

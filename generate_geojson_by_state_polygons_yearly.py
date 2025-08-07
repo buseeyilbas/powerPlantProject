@@ -89,31 +89,37 @@ def convert_jsons(input_folder, output_folder):
                         unmatched_count += 1
                         print(f"⚠️ Not matched: {entry.get('EinheitMastrNummer')} at {point}")
 
-    os.makedirs(output_folder, exist_ok=True)
-
+    # 🧠 Now split per state + year
     for state_name, features in grouped_features.items():
-        file_name = f"{state_name}.geojson"
-        output_path = os.path.join(output_folder, file_name)
+        year_groups = defaultdict(list)
+        for feature in features:
+            date_str = feature["properties"].get("Inbetriebnahmedatum", "")
+            year = date_str[:4] if len(date_str) >= 4 else "unknown"
+            year_groups[year].append(feature)
 
-        geojson = {
-            "type": "FeatureCollection",
-            "features": features
-        }
+        # Write per year file inside subfolder
+        state_folder = os.path.join(output_folder, state_name)
+        os.makedirs(state_folder, exist_ok=True)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(geojson, f, indent=2, ensure_ascii=False)
+        for year, feats in year_groups.items():
+            output_path = os.path.join(state_folder, f"{year}.geojson")
+            geojson = {
+                "type": "FeatureCollection",
+                "features": feats
+            }
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(geojson, f, indent=2, ensure_ascii=False)
 
-        print(f"✅ Saved {len(features)} features to {output_path}")
+            print(f"✅ {state_name}/{year}.geojson → {len(feats)} features")
 
     print(f"\n📄 Processed {total_files} JSON files in total.")
     print(f"✅ Matched entries: {matched_count}")
     print(f"⚠️ Unmatched entries: {unmatched_count}")
 
 
-
 # Run the conversion
 if __name__ == "__main__":
     input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
-    output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon"
+    output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
 
     convert_jsons(input_folder, output_folder)
