@@ -92,14 +92,6 @@ for file_name in os.listdir(geojson_folder):
             )
         )
 
-        # ➖ Outline width: self-consumption or direct feed-in
-        symbol.symbolLayer(0).setDataDefinedProperty(
-            QgsSymbolLayer.PropertyStrokeWidth,
-            QgsProperty.fromExpression(
-                'CASE WHEN "Einspeisungsart" = \'688\' THEN 0.8 ELSE 0.3 END'
-            )
-        )
-
         # ✅ QGIS 3.10 uyumlu rule tanımı
         rule = QgsRuleBasedRenderer.Rule(symbol)
         rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')

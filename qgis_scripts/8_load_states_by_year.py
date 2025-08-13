@@ -94,14 +94,7 @@ for state_name in sorted(os.listdir(base_folder)):
                     'THEN \'green\' ELSE \'black\' END'
                 )
             )
-
-            # ➖ Outline width: feed-in type
-            symbol.symbolLayer(0).setDataDefinedProperty(
-                QgsSymbolLayer.PropertyStrokeWidth,
-                QgsProperty.fromExpression(
-                    'CASE WHEN "Einspeisungsart" = \'688\' THEN 0.8 ELSE 0.3 END'
-                )
-            )
+            
 
             rule = QgsRuleBasedRenderer.Rule(symbol)
             rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')

@@ -70,14 +70,6 @@ else:
             )
         )
 
-        # ➖ Outline width: self-consumption or direct feed-in
-        symbol.symbolLayer(0).setDataDefinedProperty(
-            QgsSymbolLayer.PropertyStrokeWidth,
-            QgsProperty.fromExpression(
-                'CASE WHEN "Einspeisungsart" = \'688\' THEN 0.8 ELSE 0.3 END'
-            )
-        )
-
         # 🎯 Rule for energy code
         rule = QgsRuleBasedRenderer.Rule(symbol)
         rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')

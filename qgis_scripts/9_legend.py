@@ -25,12 +25,10 @@ for color, label in energy_types:
 y -= 0.05
 
 lines = [
-    "-Symbol size proportional to power capacity",
+    "*Symbol size proportional to power capacity",
     "OUTLINES",
     "-Green: remotely controllable",
-    "-Black: not remotely controllable",
-    "-Bold: self-consumption with feed-in",
-    "-Thin: direct feed-in"
+    "-Black: not remotely controllable"
 ]
 
 for line in lines:

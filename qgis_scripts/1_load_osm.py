@@ -10,13 +10,3 @@ if osm_layer.isValid():
     print("🗺️ OpenStreetMap layer added.")
 else:
     print("❌ Failed to load OpenStreetMap layer.")
-
-# Load Germany GeoJSON layer
-geojson_path = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\all_germany.geojson"
-germany_layer = QgsVectorLayer(geojson_path, "All Germany Power Plants", "ogr")
-
-if germany_layer.isValid():
-    QgsProject.instance().addMapLayer(germany_layer)
-    print("✅ Germany GeoJSON layer loaded.")
-else:
-    print("❌ Failed to load Germany GeoJSON layer.")
