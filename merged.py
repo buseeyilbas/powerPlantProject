@@ -1,5 +1,4 @@
 """
-mastr_pipeline.py
 
 End-to-end MaStR ETL pipeline that orchestrates:
 1) Download ZIP
@@ -8,7 +7,7 @@ End-to-end MaStR ETL pipeline that orchestrates:
 4) Convert XML -> JSON
 5) Validate JSON entries (required keys)
 6) Build GeoJSON (all points)
-7) (Optional) Build state-sliced GeoJSON via polygons
+7) Build state-sliced GeoJSON via polygons
 
 This script reuses the existing modules:
 - download_mastr.py
@@ -27,11 +26,6 @@ import json
 import sys
 import traceback
 from datetime import datetime
-
-# --- Import your existing modules (ensure they are on PYTHONPATH) ---
-# If this file sits in the same folder with your modules, this works as-is.
-# Otherwise, append the folder to sys.path below.
-# sys.path.append(r"C:\Users\jo73vure\Desktop\powerPlantProject\scripts")
 
 import download_mastr
 import extract_zip

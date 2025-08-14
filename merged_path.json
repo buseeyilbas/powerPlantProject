@@ -15,7 +15,7 @@
     "by_state_geojson_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_polygon"
   },
   "state_polygons": {
-    "enabled": false,
+    "enabled": true,
     "polygon_file": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
   },
   "validation": {
