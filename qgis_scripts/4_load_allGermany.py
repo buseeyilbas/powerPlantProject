@@ -1,25 +1,8 @@
 from qgis.core import (
-    QgsVectorLayer, QgsProject, QgsLayerTreeLayer, QgsLayerTreeGroup,
-    QgsRuleBasedRenderer, QgsMarkerSymbol, QgsSymbol, QgsProperty, QgsSymbolLayer
-)
-from qgis.core import (
-    QgsPalLayerSettings,
-    QgsTextFormat,
-    QgsVectorLayerSimpleLabeling
+    QgsVectorLayer, QgsProject, QgsRuleBasedRenderer, QgsMarkerSymbol,
+    QgsSymbolLayer, QgsProperty, QgsRuleBasedRenderer
 )
 import os
-
-
-# 📁 Folder path for GeoJSONs
-geojson_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon"
-group_name = "Powerplants by State (Polygons)"
-
-# 🔄 Replace existing group if already loaded
-root = QgsProject.instance().layerTreeRoot()
-existing_group = root.findGroup(group_name)
-if existing_group:
-    root.removeChildNode(existing_group)
-layer_group = root.addGroup(group_name)
 
 # 🎨 Energy code → color mapping
 ENERGY_COLOR_MAP = {
@@ -32,10 +15,10 @@ ENERGY_COLOR_MAP = {
     "2497": "white",   # Onshore Wind
     "2498": "skyblue", # Hydropower
     "2957": "orange",  # Pressure Relief (CHP)
-    "2958": "orange"  # Pressure Relief (Small)
+    "2958": "orange"   # Pressure Relief (Small)
 }
 
-
+# 🏷 Energy label map
 energy_labels = {
     "2403": "Deep Geothermal Energy (Tiefe Geothermie)",
     "2405": "Sewage Gas (Klärgas)",
@@ -49,19 +32,14 @@ energy_labels = {
     "2958": "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)"
 }
 
-# 🚀 Loop through all GeoJSON files
-for file_name in os.listdir(geojson_folder):
-    if not file_name.endswith(".geojson"):
-        continue
+# 📁 GeoJSON path
+geojson_path = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\all_germany_three_checks.geojson"
+layer_name = "all_germany"
+layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
 
-    file_path = os.path.join(geojson_folder, file_name)
-    layer_name = os.path.splitext(file_name)[0].replace("_", " ").title().replace(" ", "_")
-    layer = QgsVectorLayer(file_path, layer_name, "ogr")
-
-    if not layer.isValid():
-        print(f"❌ Failed to load: {file_name}")
-        continue
-
+if not layer.isValid():
+    print("❌ Failed to load all_germany.geojson.")
+else:
     # 🌟 Root rule
     root_rule = QgsRuleBasedRenderer.Rule(None)
 
@@ -83,7 +61,7 @@ for file_name in os.listdir(geojson_folder):
             )
         )
 
-        # ⚫ Outline color: remote controllable
+        # ⚫ Outline color: remotely controllable
         symbol.symbolLayer(0).setDataDefinedProperty(
             QgsSymbolLayer.PropertyStrokeColor,
             QgsProperty.fromExpression(
@@ -92,20 +70,16 @@ for file_name in os.listdir(geojson_folder):
             )
         )
 
-        # ✅ QGIS 3.10 uyumlu rule tanımı
+        # 🎯 Rule for energy code
         rule = QgsRuleBasedRenderer.Rule(symbol)
         rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')
         label = f"{code} - {energy_labels.get(code, 'Unknown')}"
         rule.setLabel(label)
         root_rule.appendChild(rule)
 
-    # 🎨 Apply renderer
+    # 🎨 Apply renderer and add layer
     renderer = QgsRuleBasedRenderer(root_rule)
     layer.setRenderer(renderer)
+    QgsProject.instance().addMapLayer(layer)
 
-    # ➕ Add to project
-    QgsProject.instance().addMapLayer(layer, False)
-    tree_layer = QgsLayerTreeLayer(layer)
-    layer_group.insertChildNode(0, tree_layer)
-    print(f"✅ Loaded and styled: {layer_name}")
-
+    print("✅ all_germany.geojson successfully loaded and styled.")

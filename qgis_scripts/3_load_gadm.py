@@ -12,10 +12,13 @@ from qgis.PyQt.QtGui import QColor, QFont
 base_path = r"C:/Users/jo73vure/Desktop/powerPlantProject/gadm_data/gadm41_DEU"
 file_names = [
     "gadm41_DEU_1.json",  # State boundaries
-    "gadm41_DEU_2.json",
+    "gadm41_DEU_2.json",  # District (Landkreis) boundaries
     "gadm41_DEU_3.json",
     "gadm41_DEU_4.json"
 ]
+
+# Desired visible layers
+VISIBLE_LAYERS = {"gadm41_DEU_1", "gadm41_DEU_2"}
 
 # 📌 Load layers and store references
 loaded_layers = {}
@@ -30,35 +33,42 @@ for file_name in file_names:
     else:
         print(f"❌ Failed to load {layer_name}")
 
-# 🔍 Set opacity for all loaded layers
+# 🔍 Set opacity for all loaded layers (QGIS 3.10 compatible)
 for lyr in loaded_layers.values():
-    lyr.setOpacity(0.5)  # QGIS 3.10 compatible
+    lyr.setOpacity(0.5)
     lyr.triggerRepaint()
     print(f"☑️ Opacity set for {lyr.name()}")
 
-# 👁️ Only keep gadm41_DEU_1 visible
+# 👁️ Keep only gadm41_DEU_1 and gadm41_DEU_2 visible
 root = QgsProject.instance().layerTreeRoot()
 for lyr_name, lyr in loaded_layers.items():
     node = root.findLayer(lyr.id())
     if node:
-        node.setItemVisibilityChecked(lyr_name == "gadm41_DEU_1")
+        node.setItemVisibilityChecked(lyr_name in VISIBLE_LAYERS)
 
-# 🏷️ Add state name labels to gadm41_DEU_1
-layer_1 = loaded_layers.get("gadm41_DEU_1")
-if layer_1:
+# 🏷️ Helper to apply labeling to a given layer by field name
+def enable_labeling(layer, field_name: str, font_family="Arial", font_size=10, color="black"):
+    if not layer:
+        return
     label_settings = QgsPalLayerSettings()
-    label_settings.fieldName = "NAME_1"   # State name field
+    label_settings.fieldName = field_name
     label_settings.enabled = True
 
-    # ✏️ Text formatting
     text_format = QgsTextFormat()
-    text_format.setFont(QFont("Arial", 10))
-    text_format.setSize(10)
-    text_format.setColor(QColor("black"))
+    text_format.setFont(QFont(font_family, font_size))
+    text_format.setSize(font_size)
+    text_format.setColor(QColor(color))
     label_settings.setFormat(text_format)
 
-    # Apply labeling
-    layer_1.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
-    layer_1.setLabelsEnabled(True)
-    layer_1.triggerRepaint()
-    print("🏷️ State labels enabled on gadm41_DEU_1")
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
+    layer.setLabelsEnabled(True)
+    layer.triggerRepaint()
+
+# 🏷️ Add labels
+layer_1 = loaded_layers.get("gadm41_DEU_1")
+enable_labeling(layer_1, "NAME_1")
+print("🏷️ State labels enabled on gadm41_DEU_1")
+
+layer_2 = loaded_layers.get("gadm41_DEU_2")
+enable_labeling(layer_2, "NAME_2")
+print("🏷️ District labels enabled on gadm41_DEU_2")

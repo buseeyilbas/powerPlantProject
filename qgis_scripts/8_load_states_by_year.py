@@ -6,8 +6,8 @@ import os
 import json
 
 # 📁 Path to yearly-structured GeoJSONs
-base_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
-group_name = "Powerplants by State-Year"
+base_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
+group_name = "Powerplants by State(3checks)-Year"
 
 # 🧹 Remove previous group if exists
 root = QgsProject.instance().layerTreeRoot()
