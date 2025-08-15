@@ -11,12 +11,16 @@
     "valid_json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/valid_json"
   },
   "outputs": {
-    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany.geojson",
-    "by_state_geojson_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_polygon"
+    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany_three_checks.geojson",
+    "by_state_geojson_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_three_checks"
   },
   "state_polygons": {
     "enabled": true,
     "polygon_file": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
+  },
+  "state_3checks": {
+    "enabled": true,
+    "polygon_states_path": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
   },
   "validation": {
     "required_keys": ["Bundesland", "Energietraeger", "Gemeindeschluessel", "LokationMaStRNummer", "EegMaStRNummer"]

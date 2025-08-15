@@ -1,33 +1,34 @@
 """
-Convert a folder of valid JSON files into a single GeoJSON (All Germany),
-but only include entries that pass a triple consistency check:
+Generate per-state, per-year GeoJSON with triple consistency checks:
+1) Point-in-polygon state assignment (from state polygons)
+2) Bundesland code -> state mapping
+3) Gemeindeschluessel (AGS) 2-digit prefix -> state mapping
 
-1) Point-in-polygon state assignment (from 'polygon_states.json')
-2) Bundesland code mapping (1400–1415)
-3) Gemeindeschluessel (AGS) 2-digit prefix mapping
-
-Only entries consistent across all three are exported.
+Only entries consistent across all three are exported, under:
+<OUTPUT_ROOT>/<StatePrettyName>/<YYYY>.geojson
 
 Dependencies:
 - shapely
 
 How to run:
-- Adjust the CONFIG block paths and run with Python 3.x
+- Adjust the CONFIG block and run with Python 3.x
 """
 
 import os
 import json
-from typing import Dict, Optional
+from collections import defaultdict
+from typing import Dict, Optional, Tuple, List
 from shapely.geometry import shape, MultiPolygon, Polygon, Point
 
 # ========== CONFIG ==========
 INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
-OUTPUT_GEOJSON = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\all_germany_three_checks.geojson"
-SUMMARY_PATH   = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\_consistency_summary.json"
-POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # expects features[].properties.name
+OUTPUT_ROOT  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
+POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # features[].properties.name
+DATE_FIELD = "Inbetriebnahmedatum"  # field used to derive year
 # ============================
 
 # ---- Bundesland (1400–1415) => normalized state name ----
+# Values are canonical tokens; we normalize again later to be safe.
 BUNDESLAND_CODE_TO_NAME: Dict[str, str] = {
     "1400": "brandenburg",
     "1401": "berlin",
@@ -75,7 +76,7 @@ def normalize_state_name(name: str) -> str:
         return ""
     s = name.lower()
     s = (s.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
-         .replace("ß", "ss"))
+           .replace("ß", "ss"))
     for ch in [" ", "_", "-", "(", ")", "[", "]", "{", "}", ".", ",", "'", '"', "/"]:
         s = s.replace(ch, "")
     return s
@@ -100,15 +101,37 @@ def parse_point(entry: dict) -> Optional[Point]:
     except Exception:
         return None
 
-def load_state_polygons(geojson_path: str) -> Dict[str, MultiPolygon]:
+def extract_year(entry: dict, field: str = DATE_FIELD) -> str:
     """
-    Read state polygons and return {normalized_state_name: MultiPolygon}.
+    Extract YYYY from a date-like string. Falls back to 'unknown' when missing/invalid.
+    Expected formats include 'YYYY-MM-DD', 'YYYY', etc.
+    """
+    val = str(entry.get(field, "") or "")
+    year = val[:4]
+    return year if year.isdigit() and len(year) == 4 else "unknown"
+
+def to_feature(entry: dict, point: Point) -> dict:
+    """Build a GeoJSON Feature (Point) from the entry."""
+    props = {k: v for k, v in entry.items() if k not in ["Laengengrad", "Breitengrad"]}
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [point.x, point.y]},
+        "properties": props,
+    }
+
+def load_state_polygons(geojson_path: str) -> Tuple[Dict[str, MultiPolygon], Dict[str, str]]:
+    """
+    Read state polygons and return:
+      - polygons_by_norm: {normalized_state_name: MultiPolygon}
+      - pretty_by_norm:   {normalized_state_name: original_pretty_name}
     Expects each feature to have properties.name and Polygon/MultiPolygon geometry.
     """
     data = load_json(geojson_path)
     feats = data["features"] if isinstance(data, dict) and "features" in data else data
 
-    out: Dict[str, MultiPolygon] = {}
+    polygons_by_norm: Dict[str, MultiPolygon] = {}
+    pretty_by_norm: Dict[str, str] = {}
+
     for feat in feats:
         props = feat.get("properties", {}) or {}
         state_name = props.get("name")
@@ -119,15 +142,17 @@ def load_state_polygons(geojson_path: str) -> Dict[str, MultiPolygon]:
             geom = MultiPolygon([geom])
         if not isinstance(geom, MultiPolygon):
             continue
-        out[normalize_state_name(state_name)] = geom
-    return out
+        key = normalize_state_name(state_name)
+        polygons_by_norm[key] = geom
+        pretty_by_norm[key] = state_name  # keep pretty name for folder labels
+    return polygons_by_norm, pretty_by_norm
 
-def polygon_state_of_point(point: Point, polygons: Dict[str, MultiPolygon]) -> Optional[str]:
+def polygon_state_of_point(point: Point, polygons_by_norm: Dict[str, MultiPolygon]) -> Optional[str]:
     """
     Determine which state's polygon covers the point. Returns the *normalized* state name.
     Uses 'covers' so boundary points are included.
     """
-    for norm_name, mp in polygons.items():
+    for norm_name, mp in polygons_by_norm.items():
         if mp.covers(point):
             return norm_name
     return None
@@ -146,29 +171,23 @@ def gs_prefix_to_norm_name(gs: str) -> Optional[str]:
     name = GS_PREFIX_TO_NAME.get(gs[:2])
     return normalize_state_name(name) if name else None
 
-def to_feature(entry: dict, point: Point) -> dict:
-    """Build a GeoJSON Feature (Point) from the entry."""
-    props = {k: v for k, v in entry.items() if k not in ["Laengengrad", "Breitengrad"]}
-    return {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [point.x, point.y]},
-        "properties": props,
-    }
-
 # ---------- Main ----------
 
-def convert_all_germany_with_three_checks(
+def convert_by_state_year_with_three_checks(
     input_folder: str,
+    output_root: str,
     polygon_states_path: str,
-    output_geojson: str,
-    summary_path: str
+    date_field: str = DATE_FIELD
 ):
+    os.makedirs(output_root, exist_ok=True)
+
     # Load polygons once
-    state_polygons = load_state_polygons(polygon_states_path)
-    if not state_polygons:
+    polygons_by_norm, pretty_by_norm = load_state_polygons(polygon_states_path)
+    if not polygons_by_norm:
         raise RuntimeError("No state polygons loaded. Check POLYGON_STATES_PATH and properties.name field.")
 
-    features = []
+    # Buckets: {state_norm: {year: [features...]}}
+    buckets: Dict[str, Dict[str, List[dict]]] = defaultdict(lambda: defaultdict(list))
 
     # Counters/logs
     total_files = 0
@@ -200,10 +219,10 @@ def convert_all_germany_with_three_checks(
                 if point is None:
                     continue
 
-                poly_state_norm = polygon_state_of_point(point, state_polygons)
+                poly_state_norm = polygon_state_of_point(point, polygons_by_norm)
                 if not poly_state_norm:
                     no_poly += 1
-                    continue  # discard if no polygon match
+                    continue
 
                 bl_code = entry.get("Bundesland")
                 bl_norm = bl_code_to_norm_name(bl_code) if bl_code is not None else None
@@ -226,7 +245,9 @@ def convert_all_germany_with_three_checks(
                     continue
 
                 if poly_state_norm == bl_norm == gs_norm:
-                    features.append(to_feature(entry, point))
+                    year = extract_year(entry, date_field)
+                    feat = to_feature(entry, point)
+                    buckets[poly_state_norm][year].append(feat)
                     consistent += 1
                 else:
                     if poly_state_norm != bl_norm:
@@ -241,37 +262,45 @@ def convert_all_germany_with_three_checks(
                         "EinheitMastrNummer": entry.get("EinheitMastrNummer")
                     })
 
-    # Write single All-Germany GeoJSON
-    os.makedirs(os.path.dirname(output_geojson), exist_ok=True)
-    geojson = {"type": "FeatureCollection", "features": features}
-    with open(output_geojson, "w", encoding="utf-8") as f:
-        json.dump(geojson, f, ensure_ascii=False, indent=2)
+    # Write: <OUTPUT_ROOT>/<PrettyState>/<YYYY>.geojson
+    for state_norm, years_dict in buckets.items():
+        pretty_state = pretty_by_norm.get(state_norm, state_norm)
+        state_folder = os.path.join(output_root, pretty_state)
+        os.makedirs(state_folder, exist_ok=True)
 
-    # Write summary log
+        for year, feats in years_dict.items():
+            if not feats:
+                continue
+            out_path = os.path.join(state_folder, f"{year}.geojson")
+            geojson = {"type": "FeatureCollection", "features": feats}
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(geojson, f, ensure_ascii=False, indent=2)
+            print(f"✅ Saved {len(feats)} features → {pretty_state}/{year}.geojson")
+
+    # Summary log
     summary = {
         "files_processed": total_files,
         "entries_seen": total_entries,
-        "consistent_written": consistent,
+        "consistent": consistent,
         "no_polygon_match": no_poly,
         "bundesland_missing_or_unmapped": bl_missing,
         "gemeindeschluessel_missing_or_unmapped": gs_missing,
         "bundesland_mismatch_count": bl_mismatch,
         "gemeindeschluessel_mismatch_count": gs_mismatch,
         "mismatch_samples_first_200": mismatch_samples[:200],
-        "output_geojson": output_geojson,
-        "polygon_states_path": polygon_states_path
+        "output_root": OUTPUT_ROOT,
+        "date_field": date_field,
     }
-    with open(summary_path, "w", encoding="utf-8") as f:
+    os.makedirs(output_root, exist_ok=True)
+    log_path = os.path.join(output_root, "_consistency_summary.json")
+    with open(log_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print("\n====== SUMMARY ======")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"\n✅ Created {output_geojson}")
+
 
 if __name__ == "__main__":
-    convert_all_germany_with_three_checks(
-        INPUT_FOLDER,
-        POLYGON_STATES_PATH,
-        OUTPUT_GEOJSON,
-        SUMMARY_PATH
+    convert_by_state_year_with_three_checks(
+        INPUT_FOLDER, OUTPUT_ROOT, POLYGON_STATES_PATH, DATE_FIELD
     )

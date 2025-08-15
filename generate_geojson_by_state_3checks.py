@@ -1,12 +1,10 @@
 """
-Convert a folder of valid JSON files into a single GeoJSON (All Germany),
-but only include entries that pass a triple consistency check:
+Generate state-level GeoJSON by triple-consistency check:
+1) Point-in-polygon state assignment
+2) Bundesland code mapping
+3) Gemeindeschluessel (AGS) prefix mapping
 
-1) Point-in-polygon state assignment (from 'polygon_states.json')
-2) Bundesland code mapping (1400–1415)
-3) Gemeindeschluessel (AGS) 2-digit prefix mapping
-
-Only entries consistent across all three are exported.
+Only entries that are consistent across all three are exported.
 
 Dependencies:
 - shapely
@@ -17,17 +15,17 @@ How to run:
 
 import os
 import json
-from typing import Dict, Optional
+from collections import defaultdict
+from typing import Dict, Tuple, Optional
 from shapely.geometry import shape, MultiPolygon, Polygon, Point
 
 # ========== CONFIG ==========
 INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
-OUTPUT_GEOJSON = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\all_germany_three_checks.geojson"
-SUMMARY_PATH   = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\_consistency_summary.json"
-POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # expects features[].properties.name
+OUTPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_three_checks"
+POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # properties.name expected
 # ============================
 
-# ---- Bundesland (1400–1415) => normalized state name ----
+# ---- Bundesland (1400–1415) => canonical state name (with correct accents) ----
 BUNDESLAND_CODE_TO_NAME: Dict[str, str] = {
     "1400": "brandenburg",
     "1401": "berlin",
@@ -47,7 +45,7 @@ BUNDESLAND_CODE_TO_NAME: Dict[str, str] = {
     "1415": "thueringen",
 }
 
-# ---- Gemeindeschlüssel 2-digit prefix => normalized state name ----
+# ---- Gemeindeschlüssel 2-digit prefix => canonical state name ----
 GS_PREFIX_TO_NAME: Dict[str, str] = {
     "01": "schleswig_holstein",
     "02": "hamburg",
@@ -74,9 +72,11 @@ def normalize_state_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
     s = name.lower()
+    # Basic German transliteration for robust matching
     s = (s.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
-         .replace("ß", "ss"))
-    for ch in [" ", "_", "-", "(", ")", "[", "]", "{", "}", ".", ",", "'", '"', "/"]:
+           .replace("ß", "ss"))
+    # Remove separators/spaces
+    for ch in [" ", "_", "-", "(", ")", "[", "]", "{", "}", ".", ",", "'"]:
         s = s.replace(ch, "")
     return s
 
@@ -103,7 +103,7 @@ def parse_point(entry: dict) -> Optional[Point]:
 def load_state_polygons(geojson_path: str) -> Dict[str, MultiPolygon]:
     """
     Read state polygons and return {normalized_state_name: MultiPolygon}.
-    Expects each feature to have properties.name and Polygon/MultiPolygon geometry.
+    Expects each feature to have properties.name and a Polygon/MultiPolygon geometry.
     """
     data = load_json(geojson_path)
     feats = data["features"] if isinstance(data, dict) and "features" in data else data
@@ -157,18 +157,20 @@ def to_feature(entry: dict, point: Point) -> dict:
 
 # ---------- Main ----------
 
-def convert_all_germany_with_three_checks(
+def convert_with_three_checks(
     input_folder: str,
-    polygon_states_path: str,
-    output_geojson: str,
-    summary_path: str
+    output_folder: str,
+    polygon_states_path: str
 ):
+    os.makedirs(output_folder, exist_ok=True)
+
     # Load polygons once
     state_polygons = load_state_polygons(polygon_states_path)
     if not state_polygons:
         raise RuntimeError("No state polygons loaded. Check POLYGON_STATES_PATH and properties.name field.")
 
-    features = []
+    # Group consistent features by polygon state (normalized name)
+    grouped: Dict[str, list] = defaultdict(list)
 
     # Counters/logs
     total_files = 0
@@ -180,6 +182,7 @@ def convert_all_germany_with_three_checks(
     bl_missing = 0
     gs_missing = 0
 
+    # Optional: collect a small log of inconsistent entries
     mismatch_samples = []
 
     for root, _, files in os.walk(input_folder):
@@ -203,18 +206,21 @@ def convert_all_germany_with_three_checks(
                 poly_state_norm = polygon_state_of_point(point, state_polygons)
                 if not poly_state_norm:
                     no_poly += 1
-                    continue  # discard if no polygon match
+                    continue  # discard if it doesn't fall into any state polygon
 
+                # Bundesland check
                 bl_code = entry.get("Bundesland")
                 bl_norm = bl_code_to_norm_name(bl_code) if bl_code is not None else None
                 if bl_norm is None:
                     bl_missing += 1
+                    # If Bundesland missing/unmappable, treat as inconsistent
                     mismatch_samples.append({
                         "reason": "bundesland_missing_or_unmapped",
                         "EinheitMastrNummer": entry.get("EinheitMastrNummer")
                     })
                     continue
 
+                # Gemeindeschlüssel check
                 gs = entry.get("Gemeindeschluessel")
                 gs_norm = gs_prefix_to_norm_name(gs) if gs is not None else None
                 if gs_norm is None:
@@ -225,10 +231,12 @@ def convert_all_germany_with_three_checks(
                     })
                     continue
 
+                # Final consistency: polygon == Bundesland == Gemeindeschlüssel
                 if poly_state_norm == bl_norm == gs_norm:
-                    features.append(to_feature(entry, point))
+                    grouped[poly_state_norm].append(to_feature(entry, point))
                     consistent += 1
                 else:
+                    # Track which part mismatched (helpful for auditing)
                     if poly_state_norm != bl_norm:
                         bl_mismatch += 1
                     if poly_state_norm != gs_norm or bl_norm != gs_norm:
@@ -241,37 +249,35 @@ def convert_all_germany_with_three_checks(
                         "EinheitMastrNummer": entry.get("EinheitMastrNummer")
                     })
 
-    # Write single All-Germany GeoJSON
-    os.makedirs(os.path.dirname(output_geojson), exist_ok=True)
-    geojson = {"type": "FeatureCollection", "features": features}
-    with open(output_geojson, "w", encoding="utf-8") as f:
-        json.dump(geojson, f, ensure_ascii=False, indent=2)
+    # Write one GeoJSON per state (using the *polygon* state name to name files)
+    for poly_state_norm, feats in grouped.items():
+        if not feats:
+            continue
+        out_path = os.path.join(OUTPUT_FOLDER, f"{poly_state_norm}.geojson")
+        geojson = {"type": "FeatureCollection", "features": feats}
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(geojson, f, ensure_ascii=False, indent=2)
+        print(f"✅ Saved {len(feats)} consistent features to {out_path}")
 
-    # Write summary log
+    # Also write a compact log for quick inspection (JSON)
+    log_path = os.path.join(OUTPUT_FOLDER, "_consistency_summary.json")
     summary = {
         "files_processed": total_files,
         "entries_seen": total_entries,
-        "consistent_written": consistent,
+        "consistent": consistent,
         "no_polygon_match": no_poly,
         "bundesland_missing_or_unmapped": bl_missing,
         "gemeindeschluessel_missing_or_unmapped": gs_missing,
         "bundesland_mismatch_count": bl_mismatch,
         "gemeindeschluessel_mismatch_count": gs_mismatch,
         "mismatch_samples_first_200": mismatch_samples[:200],
-        "output_geojson": output_geojson,
-        "polygon_states_path": polygon_states_path
     }
-    with open(summary_path, "w", encoding="utf-8") as f:
+    with open(log_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print("\n====== SUMMARY ======")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"\n✅ Created {output_geojson}")
+
 
 if __name__ == "__main__":
-    convert_all_germany_with_three_checks(
-        INPUT_FOLDER,
-        POLYGON_STATES_PATH,
-        OUTPUT_GEOJSON,
-        SUMMARY_PATH
-    )
+    convert_with_three_checks(INPUT_FOLDER, OUTPUT_FOLDER, POLYGON_STATES_PATH)
