@@ -1,0 +1,28 @@
+{
+  "download": {
+    "enabled": true,
+    "url": "https://download.marktstammdatenregister.de/Stichtag/Gesamtdatenexport_20250701_25.1.zip"
+  },
+  "paths": {
+    "raw_data_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/raw",
+    "extracted_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/extracted",
+    "valid_xml_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/valid_xml",
+    "json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/json",
+    "valid_json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/valid_json"
+  },
+  "outputs": {
+    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany_three_checks.geojson",
+    "by_state_geojson_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_three_checks"
+  },
+  "state_polygons": {
+    "enabled": true,
+    "polygon_file": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
+  },
+  "state_3checks": {
+    "enabled": true,
+    "polygon_states_path": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
+  },
+  "validation": {
+    "required_keys": ["Bundesland", "Energietraeger", "Gemeindeschluessel", "LokationMaStRNummer", "EegMaStRNummer"]
+  }
+}
