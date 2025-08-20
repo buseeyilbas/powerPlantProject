@@ -1,4 +1,4 @@
-# list_energy_types.py
+
 
 import os
 import json

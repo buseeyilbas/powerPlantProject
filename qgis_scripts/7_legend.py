@@ -35,11 +35,11 @@ for line in lines:
     ax.text(0.1, y, line, fontsize=8, horizontalalignment='left')
     y -= 0.07
 
-# Eksen sınırlarını ayarla ki tüm metinler görünsün
+
 ax.set_xlim(0, 1)
 ax.set_ylim(0, 1.1)
 
-# Kenar boşluklarını elle ayarla
+
 fig.subplots_adjust(left=0.1, right=0.95, top=0.95, bottom=0.05)
 
 plt.show()

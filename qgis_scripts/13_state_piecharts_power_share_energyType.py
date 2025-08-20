@@ -6,10 +6,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 
-# 📁 Input path for GeoJSON files
+
 GEOJSON_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_three_checks"
 
-# 🗂️ Energy codes and labels
+# Energy codes and labels
 ENERGY_TYPES = {
     "2403": "Deep Geothermal",
     "2405": "Sewage Gas",
@@ -165,6 +165,6 @@ def plot_pie_charts(state_data):
     dialog.setLayout(layout)
     dialog.exec_()
 
-# 🚀 Main
+
 state_data = load_state_power_data()
 plot_pie_charts(state_data)

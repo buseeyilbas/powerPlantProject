@@ -1,20 +1,4 @@
-"""
-Assign valid JSON entries to German GADM Level-2 polygons (Landkreise),
-and export one GeoJSON per Landkreis, placed inside its parent State folder.
 
-Folder layout:
-  OUTPUT_FOLDER/
-    <STATE (NAME_1 sanitized)>/
-      <LANDKREIS (NAME_2 sanitized)>.geojson
-
-No 3-step checks here. Only point-in-polygon containment with GADM Level-2.
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block and run with Python 3.x
-"""
 
 import os
 import json

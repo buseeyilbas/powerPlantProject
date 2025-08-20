@@ -1,4 +1,4 @@
-# 13_states_yearly_power_trend.py
+
 
 import os
 import json
@@ -11,9 +11,9 @@ from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 # 📁 GeoJSON base folder
 BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
 
-# 🧮 Toplam kurulu gücü (Bruttoleistung) yıllık hesapla
+
 def compute_yearly_total_power():
-    state_power = defaultdict(lambda: defaultdict(float))  # state → year → total_kW
+    state_power = defaultdict(lambda: defaultdict(float))  # state -- year -- total_kW
 
     for state_name in os.listdir(BASE_DIR):
         state_path = os.path.join(BASE_DIR, state_name)
@@ -45,7 +45,7 @@ def compute_yearly_total_power():
 
     return state_power
 
-# 📈 Grafik çiz
+
 def plot_power_trend_charts(all_state_data):
     tab_widget = QTabWidget()
 
@@ -59,7 +59,7 @@ def plot_power_trend_charts(all_state_data):
 
         ax.plot(years, values, color="darkblue", marker="o", linewidth=2)
 
-        # 📌 Her noktaya değer yaz
+
         for x, y in zip(years, values):
             if y > 0:
                 ax.text(x, y + max(values) * 0.01, f"{y:,.0f}".replace(",", "."), ha="center", fontsize=8)
@@ -81,7 +81,7 @@ def plot_power_trend_charts(all_state_data):
 
         tab_widget.addTab(tab, state)
 
-    # 💻 Dialog olarak göster
+
     dialog = QDialog()
     dialog.setWindowTitle("Yearly Installed Power Trend (All States)")
     dialog.setMinimumSize(1100, 700)
@@ -91,6 +91,6 @@ def plot_power_trend_charts(all_state_data):
     dialog.setLayout(layout)
     dialog.exec_()
 
-# 🚀 Run
+
 data = compute_yearly_total_power()
 plot_power_trend_charts(data)

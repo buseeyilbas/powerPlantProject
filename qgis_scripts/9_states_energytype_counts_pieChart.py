@@ -1,4 +1,4 @@
-# 11_states_energytype_counts_yearly_pieChart.py
+
 
 import os
 import json
@@ -8,10 +8,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 
-# 📁 GeoJSON base folder
+
+
 BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
 
-# 🎨 Energy labels and colors (same as before)
+# Energy labels and colors
 energy_labels = {
     "2403": "Deep Geothermal Energy (Tiefe Geothermie)",
     "2405": "Sewage Gas (Klärgas)",
@@ -30,14 +31,16 @@ energy_colors = {
     ])
 }
 energy_colors["unbekannt"] = "black"
-energy_colors["Other"] = "lightgray"  # 👈 diğer kategorisi
+energy_colors["Other"] = "lightgray"
 
-# 🔍 Koddan label çözümle
+
+
 def parse_energy_type(feature):
     code = str(feature.get("properties", {}).get("Energietraeger", "")).strip()
     return energy_labels.get(code, "unbekannt")
 
-# 🧮 Tüm state’ler için enerji tipi sayıları
+
+
 def aggregate_counts_per_state():
     state_counts = defaultdict(Counter)
 
@@ -61,7 +64,7 @@ def aggregate_counts_per_state():
                     print(f"Error reading {file_path}: {e}")
     return state_counts
 
-# 📊 Pie chart çizimi
+# Pie chart
 def plot_pie_charts(state_data):
     tab_widget = QTabWidget()
 
@@ -70,7 +73,7 @@ def plot_pie_charts(state_data):
         if total == 0:
             continue
 
-        # ✅ %1'in altındakileri "Other" kategorisine topla
+        # under %1 -- "Other"
         grouped_counts = Counter()
         for label, count in counts.items():
             ratio = count / total
@@ -109,7 +112,7 @@ def plot_pie_charts(state_data):
 
         tab_widget.addTab(tab, state)
 
-    # 🎯 Show as floating dialog
+
     dialog = QDialog()
     dialog.setWindowTitle("Energy Type Pie Charts by State")
     dialog.setMinimumSize(900, 700)
@@ -119,6 +122,6 @@ def plot_pie_charts(state_data):
     dialog.setLayout(layout)
     dialog.exec_()
 
-# 🚀 Main
+
 state_data = aggregate_counts_per_state()
 plot_pie_charts(state_data)

@@ -1,4 +1,4 @@
-# 12_states_plants_yearly.py
+
 
 import os
 import json
@@ -8,10 +8,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 
-# 📁 Main GeoJSON folder (per state, per year)
+
 BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
 
-# 📊 Count how many plants are commissioned per year, per state
+# how many plants are commissioned per year, per state
 def count_plants_per_year():
     counts = defaultdict(lambda: defaultdict(int))  # state → year → count
 
@@ -39,7 +39,7 @@ def count_plants_per_year():
                     print(f"Error reading {file_path}: {e}")
     return counts
 
-# 📈 Plot per state
+# plot per state
 def plot_yearly_bar_charts(all_counts):
     tab_widget = QTabWidget()
 
@@ -53,7 +53,7 @@ def plot_yearly_bar_charts(all_counts):
 
         bars = ax.bar(years, values, color="cornflowerblue", edgecolor="black")
 
-        # 🟢 Add numbers on top of bars
+        # value labels on top of the bars
         for bar in bars:
             height = bar.get_height()
             if height > 0:
@@ -82,7 +82,7 @@ def plot_yearly_bar_charts(all_counts):
         tab.setLayout(layout)
         tab_widget.addTab(tab, state)
 
-    # 💻 Display all in a floating window
+
     dialog = QDialog()
     dialog.setWindowTitle("Power Plants Commissioned per Year (All States)")
     dialog.setMinimumSize(1100, 700)
@@ -92,6 +92,6 @@ def plot_yearly_bar_charts(all_counts):
     dialog.setLayout(layout)
     dialog.exec_()
 
-# 🚀 Run it
+
 counts = count_plants_per_year()
 plot_yearly_bar_charts(counts)

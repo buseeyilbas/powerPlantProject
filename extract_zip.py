@@ -1,9 +1,8 @@
-# extract_zip.py
+
 
 import os
 import zipfile
 
-# Define input/output folder structure
 input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\raw"        # Folder containing ZIP files
 output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\extracted" # Where to extract the contents
 

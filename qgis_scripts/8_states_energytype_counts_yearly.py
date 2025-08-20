@@ -1,4 +1,4 @@
-# 10_states_energytype_counts_yearly.py
+
 
 import os
 import json
@@ -9,10 +9,10 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 from qgis.utils import iface
 
-# 📁 Main directory containing state folders
+
 BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
 
-# 🎨 Energy source color map
+# Energy source color map
 ENERGY_TYPE_COLORS = {
     "Deep Geothermal Energy (Tiefe Geothermie)": "red",
     "Sewage Gas (Klärgas)": "purple",
@@ -27,7 +27,7 @@ ENERGY_TYPE_COLORS = {
     "unbekannt": "black"
 }
 
-# 🏷️ Energy type labels (code → label)
+# Energy type labels (code to label)
 energy_labels = {
     "2403": "Deep Geothermal Energy (Tiefe Geothermie)",
     "2405": "Sewage Gas (Klärgas)",
@@ -41,17 +41,17 @@ energy_labels = {
     "2958": "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)"
 }
 
-# 🎯 Set of valid labels
+
 ALLOWED_ENERGY_TYPES = set(energy_labels.values())
 
-# 🔎 Energy type parser
+# Energy type parse
 def parse_energy_type(feature):
     props = feature.get("properties", {})
     code = str(props.get("Energietraeger", "")).strip()
     label = energy_labels.get(code, "unbekannt")
     return label.strip()
 
-# 📊 Data collector
+# Data collector
 def process_geojson_files():
     result = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))  # state → year → type → count
 
@@ -80,7 +80,7 @@ def process_geojson_files():
                     print(f"Error reading {file_path}: {e}")
     return result
 
-# 📈 Plotting with toolbar & tabs
+# Plot with toolbar and tabs
 def plot_counts_tabbed(aggregated_data):
     tab_widget = QTabWidget()
 
@@ -99,7 +99,6 @@ def plot_counts_tabbed(aggregated_data):
         bottom = [0] * len(all_years)
         
         
-        # ✅ Set background colors
         fig.patch.set_facecolor("#f7f7f5")  # figure outer background
         ax.set_facecolor("#e6e6e6")         # plot area background
 
@@ -129,7 +128,7 @@ def plot_counts_tabbed(aggregated_data):
         tab.setLayout(layout)
         tab_widget.addTab(tab, state)
 
-    # Floating window
+
     dialog = QDialog()
     dialog.setWindowTitle("Energy Type Charts by State")
     dialog.setMinimumSize(1200, 700)
@@ -139,6 +138,6 @@ def plot_counts_tabbed(aggregated_data):
     dialog.setLayout(layout)
     dialog.exec_()
 
-# 🚀 Run
+
 data = process_geojson_files()
 plot_counts_tabbed(data)

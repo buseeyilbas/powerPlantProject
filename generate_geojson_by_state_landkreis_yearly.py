@@ -1,21 +1,3 @@
-"""
-Group valid JSON entries by State (NAME_1) -> Landkreis (NAME_2) -> Year,
-using only point-in-polygon containment against GADM Level-2 polygons.
-
-Folder layout:
-  OUTPUT_ROOT/
-    <STATE (NAME_1 sanitized)>/
-      <LANDKREIS (NAME_2 sanitized)>/
-        <YYYY>.geojson
-
-No 3-step checks here. Only polygon containment with GADM Level-2.
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block and run with Python 3.x
-"""
 
 import os
 import re

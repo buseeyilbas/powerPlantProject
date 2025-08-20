@@ -1,18 +1,4 @@
-"""
-Generate per-state, per-year GeoJSON with triple consistency checks:
-1) Point-in-polygon state assignment (from state polygons)
-2) Bundesland code -> state mapping
-3) Gemeindeschluessel (AGS) 2-digit prefix -> state mapping
 
-Only entries consistent across all three are exported, under:
-<OUTPUT_ROOT>/<StatePrettyName>/<YYYY>.geojson
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block and run with Python 3.x
-"""
 
 import os
 import json

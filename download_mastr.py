@@ -1,9 +1,8 @@
-# download_mastr.py
+
 
 import os
 import requests
 
-# Define the destination folder for raw ZIP files
 raw_data_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\raw"
 
 def download_file(url: str, destination_folder: str = raw_data_folder) -> str:

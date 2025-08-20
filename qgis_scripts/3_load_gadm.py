@@ -8,7 +8,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor, QFont
 
-# 📂 Folder where the GADM files are located
+
 base_path = r"C:/Users/jo73vure/Desktop/powerPlantProject/gadm_data/gadm41_DEU"
 file_names = [
     "gadm41_DEU_1.json",  # State boundaries
@@ -17,10 +17,11 @@ file_names = [
     "gadm41_DEU_4.json"
 ]
 
-# Desired visible layers
+
 VISIBLE_LAYERS = {"gadm41_DEU_1", "gadm41_DEU_2"}
 
-# 📌 Load layers and store references
+
+
 loaded_layers = {}
 for file_name in file_names:
     file_path = os.path.join(base_path, file_name)
@@ -33,20 +34,20 @@ for file_name in file_names:
     else:
         print(f"❌ Failed to load {layer_name}")
 
-# 🔍 Set opacity for all loaded layers (QGIS 3.10 compatible)
+# Set opacity for all loaded layers 
 for lyr in loaded_layers.values():
     lyr.setOpacity(0.5)
     lyr.triggerRepaint()
     print(f"☑️ Opacity set for {lyr.name()}")
 
-# 👁️ Keep only gadm41_DEU_1 and gadm41_DEU_2 visible
+# Keep only gadm41_DEU_1 and gadm41_DEU_2 visible
 root = QgsProject.instance().layerTreeRoot()
 for lyr_name, lyr in loaded_layers.items():
     node = root.findLayer(lyr.id())
     if node:
         node.setItemVisibilityChecked(lyr_name in VISIBLE_LAYERS)
 
-# 🏷️ Helper to apply labeling to a given layer by field name
+# apply labeling to a given layer by field name
 def enable_labeling(layer, field_name: str, font_family="Arial", font_size=10, color="black"):
     if not layer:
         return
@@ -64,7 +65,7 @@ def enable_labeling(layer, field_name: str, font_family="Arial", font_size=10, c
     layer.setLabelsEnabled(True)
     layer.triggerRepaint()
 
-# 🏷️ Add labels
+# labels
 layer_1 = loaded_layers.get("gadm41_DEU_1")
 enable_labeling(layer_1, "NAME_1")
 print("🏷️ State labels enabled on gadm41_DEU_1")

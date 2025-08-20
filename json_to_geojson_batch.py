@@ -1,19 +1,3 @@
-"""
-Convert a folder of valid JSON files into a single GeoJSON (All Germany),
-but only include entries that pass a triple consistency check:
-
-1) Point-in-polygon state assignment (from 'polygon_states.json')
-2) Bundesland code mapping (1400–1415)
-3) Gemeindeschluessel (AGS) 2-digit prefix mapping
-
-Only entries consistent across all three are exported.
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block paths and run with Python 3.x
-"""
 
 import os
 import json

@@ -1,15 +1,3 @@
-"""
-Assign valid JSON entries to German 'Landkreis' polygons (GADM Level-2) and
-export one GeoJSON per Landkreis (saved by NAME_2).
-
-No state/AGS checks are done here. Only polygon containment is used.
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block and run with Python 3.x
-"""
 
 import os
 import json

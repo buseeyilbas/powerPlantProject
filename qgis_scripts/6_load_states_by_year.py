@@ -5,11 +5,13 @@ from qgis.core import (
 import os
 import json
 
-# 📁 Path to yearly-structured GeoJSONs
+
+
 base_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
 group_name = "Powerplants by State(3checks)-Year"
 
-# 🧹 Remove previous group if exists
+
+
 root = QgsProject.instance().layerTreeRoot()
 existing_group = root.findGroup(group_name)
 if existing_group:
@@ -45,7 +47,7 @@ energy_labels = {
 }
 
 
-# 🚀 Loop over states
+# loop over states
 for state_name in sorted(os.listdir(base_folder)):
     state_path = os.path.join(base_folder, state_name)
     if not os.path.isdir(state_path):
@@ -66,7 +68,7 @@ for state_name in sorted(os.listdir(base_folder)):
             print(f"❌ Failed to load {file_path}")
             continue
 
-        # 🎨 Styling by rules
+
         root_rule = QgsRuleBasedRenderer.Rule(None)
 
         for code, color in ENERGY_COLOR_MAP.items():
@@ -77,7 +79,7 @@ for state_name in sorted(os.listdir(base_folder)):
                 'size': '4'
             })
 
-            # 📏 Size by log10(power)
+            # Size by log10(power)
             symbol.symbolLayer(0).setDataDefinedProperty(
                 QgsSymbolLayer.PropertySize,
                 QgsProperty.fromExpression(
@@ -86,7 +88,7 @@ for state_name in sorted(os.listdir(base_folder)):
                 )
             )
 
-            # ⚫ Outline color: remotely controllable
+            # Outline color: remotely controllable
             symbol.symbolLayer(0).setDataDefinedProperty(
                 QgsSymbolLayer.PropertyStrokeColor,
                 QgsProperty.fromExpression(
@@ -104,7 +106,7 @@ for state_name in sorted(os.listdir(base_folder)):
         renderer = QgsRuleBasedRenderer(root_rule)
         layer.setRenderer(renderer)
 
-        # ➕ Add to QGIS project
+
         QgsProject.instance().addMapLayer(layer, False)
         tree_layer = QgsLayerTreeLayer(layer)
         tree_layer.setItemVisibilityChecked(False)

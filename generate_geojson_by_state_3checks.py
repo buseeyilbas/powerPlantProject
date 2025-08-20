@@ -1,17 +1,4 @@
-"""
-Generate state-level GeoJSON by triple-consistency check:
-1) Point-in-polygon state assignment
-2) Bundesland code mapping
-3) Gemeindeschluessel (AGS) prefix mapping
 
-Only entries that are consistent across all three are exported.
-
-Dependencies:
-- shapely
-
-How to run:
-- Adjust the CONFIG block paths and run with Python 3.x
-"""
 
 import os
 import json

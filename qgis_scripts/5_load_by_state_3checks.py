@@ -10,18 +10,18 @@ from qgis.core import (
 import os
 
 
-# 📁 Folder path for GeoJSONs
+
 geojson_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_three_checks"
 group_name = "Powerplants by State (three checks)"
 
-# 🔄 Replace existing group if already loaded
+
 root = QgsProject.instance().layerTreeRoot()
 existing_group = root.findGroup(group_name)
 if existing_group:
     root.removeChildNode(existing_group)
 layer_group = root.addGroup(group_name)
 
-# 🎨 Energy code → color mapping
+# energy code → color mapping
 ENERGY_COLOR_MAP = {
     "2403": "red",     # Deep Geothermal
     "2405": "purple",  # Sewage Gas
@@ -49,7 +49,7 @@ energy_labels = {
     "2958": "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)"
 }
 
-# 🚀 Loop through all GeoJSON files
+# Loop through all GeoJSON files
 for file_name in os.listdir(geojson_folder):
     if not file_name.endswith(".geojson"):
         continue
@@ -62,11 +62,11 @@ for file_name in os.listdir(geojson_folder):
         print(f"❌ Failed to load: {file_name}")
         continue
 
-    # 🌟 Root rule
+
     root_rule = QgsRuleBasedRenderer.Rule(None)
 
     for code, color in ENERGY_COLOR_MAP.items():
-        # 🟢 Base symbol
+
         symbol = QgsMarkerSymbol.createSimple({
             'name': 'circle',
             'color': color,
@@ -74,7 +74,7 @@ for file_name in os.listdir(geojson_folder):
             'size': '4'
         })
 
-        # 📏 Log-scale size
+        # Log-scale size
         symbol.symbolLayer(0).setDataDefinedProperty(
             QgsSymbolLayer.PropertySize,
             QgsProperty.fromExpression(
@@ -83,7 +83,7 @@ for file_name in os.listdir(geojson_folder):
             )
         )
 
-        # ⚫ Outline color: remote controllable
+        # Outline color: remote controllable
         symbol.symbolLayer(0).setDataDefinedProperty(
             QgsSymbolLayer.PropertyStrokeColor,
             QgsProperty.fromExpression(
@@ -92,18 +92,16 @@ for file_name in os.listdir(geojson_folder):
             )
         )
 
-        # ✅ QGIS 3.10 uyumlu rule tanımı
+
         rule = QgsRuleBasedRenderer.Rule(symbol)
         rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')
         label = f"{code} - {energy_labels.get(code, 'Unknown')}"
         rule.setLabel(label)
         root_rule.appendChild(rule)
 
-    # 🎨 Apply renderer
     renderer = QgsRuleBasedRenderer(root_rule)
     layer.setRenderer(renderer)
 
-    # ➕ Add to project
     QgsProject.instance().addMapLayer(layer, False)
     tree_layer = QgsLayerTreeLayer(layer)
     layer_group.insertChildNode(0, tree_layer)

@@ -1,15 +1,3 @@
-# merged.py  (updated)
-
-"""
-End-to-end MaStR ETL pipeline that orchestrates:
-1) Download ZIP
-2) Extract ZIP
-3) Validate XML & copy valid ones
-4) Convert XML -> JSON
-5) Validate JSON entries (required keys)
-6) Build GeoJSON (all points, whole Germany)
-7) OPTIONAL: Build per-state GeoJSONs using the 3-check consistency filter
-"""
 
 import os
 import json
@@ -22,7 +10,7 @@ import xml_to_json
 import valid_json
 import json_to_geojson_batch
 
-# 3-check step (polygon + Bundesland + Gemeindeschlüssel)
+# 3check step (polygon + Bundesland + Gemeindeschlüssel)
 try:
     import generate_geojson_by_state_3checks as state_3checks
     HAS_3CHECKS = True
@@ -79,29 +67,22 @@ def step_validate_json(cfg: dict) -> None:
     print("[5/7] Filtering JSON entries by required keys...")
     valid_json.input_folder = cfg["paths"]["json_folder"]
     valid_json.output_folder = cfg["paths"]["valid_json_folder"]
-    # Example to override:
-    # valid_json.REQUIRED_KEYS = cfg["validation"].get("required_keys", valid_json.REQUIRED_KEYS)
+    
     valid_json.process_all_jsons()
 
 
 def step_build_geojson_all(cfg: dict) -> None:
-    """Create one big FeatureCollection from all valid JSON files (whole Germany)."""
+    
     print("[6/7] Building all-points GeoJSON...")
     ensure_dir(os.path.dirname(cfg["outputs"]["all_points_geojson"]))
     json_to_geojson_batch.convert_all_json_to_geojson(
         cfg["paths"]["valid_json_folder"],
         cfg["outputs"]["all_points_geojson"]
-    )  # keeps behavior of json_to_geojson_batch.py
+    ) 
 
 
 def step_build_geojson_by_state_3checks(cfg: dict) -> None:
-    """
-    OPTIONAL: Create per-state GeoJSONs after triple-consistency filtering:
-      1) point-in-polygon (state)
-      2) Bundesland code -> state name
-      3) Gemeindeschlüssel prefix -> state name
-    Only entries consistent in all three are exported.
-    """
+    
     opts = cfg.get("state_3checks", {})
     if not opts.get("enabled", False):
         print("[7/7] 3-checks per-state step is disabled in config. Skipping.")

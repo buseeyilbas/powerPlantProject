@@ -4,7 +4,7 @@ from qgis.core import (
 )
 import os
 
-# 🎨 Energy code → color mapping
+#Energy code → color mapping
 ENERGY_COLOR_MAP = {
     "2403": "red",     # Deep Geothermal
     "2405": "purple",  # Sewage Gas
@@ -18,7 +18,7 @@ ENERGY_COLOR_MAP = {
     "2958": "orange"   # Pressure Relief (Small)
 }
 
-# 🏷 Energy label map
+# Energy label map
 energy_labels = {
     "2403": "Deep Geothermal Energy (Tiefe Geothermie)",
     "2405": "Sewage Gas (Klärgas)",
@@ -32,7 +32,8 @@ energy_labels = {
     "2958": "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)"
 }
 
-# 📁 GeoJSON path
+
+
 geojson_path = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\all_germany_three_checks.geojson"
 layer_name = "all_germany"
 layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
@@ -40,11 +41,11 @@ layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
 if not layer.isValid():
     print("❌ Failed to load all_germany.geojson.")
 else:
-    # 🌟 Root rule
+
     root_rule = QgsRuleBasedRenderer.Rule(None)
 
     for code, color in ENERGY_COLOR_MAP.items():
-        # 🟢 Base symbol
+
         symbol = QgsMarkerSymbol.createSimple({
             'name': 'circle',
             'color': color,
@@ -52,7 +53,7 @@ else:
             'size': '4'
         })
 
-        # 📏 Log-scale size
+        # Log-scale size
         symbol.symbolLayer(0).setDataDefinedProperty(
             QgsSymbolLayer.PropertySize,
             QgsProperty.fromExpression(
@@ -61,7 +62,7 @@ else:
             )
         )
 
-        # ⚫ Outline color: remotely controllable
+        # Outline color: remotely controllable
         symbol.symbolLayer(0).setDataDefinedProperty(
             QgsSymbolLayer.PropertyStrokeColor,
             QgsProperty.fromExpression(
@@ -70,14 +71,14 @@ else:
             )
         )
 
-        # 🎯 Rule for energy code
+
         rule = QgsRuleBasedRenderer.Rule(symbol)
         rule.setFilterExpression(f'"Energietraeger" = \'{code}\'')
         label = f"{code} - {energy_labels.get(code, 'Unknown')}"
         rule.setLabel(label)
         root_rule.appendChild(rule)
 
-    # 🎨 Apply renderer and add layer
+
     renderer = QgsRuleBasedRenderer(root_rule)
     layer.setRenderer(renderer)
     QgsProject.instance().addMapLayer(layer)
