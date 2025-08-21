@@ -72,17 +72,27 @@ def step_validate_json(cfg: dict) -> None:
 
 
 def step_build_geojson_all(cfg: dict) -> None:
-    
-    print("[6/7] Building all-points GeoJSON...")
+    """
+    Build one all-Germany GeoJSON with 3-check consistency filter.
+    """
+    print("[6/7] Building all-points GeoJSON with 3-checks...")
     ensure_dir(os.path.dirname(cfg["outputs"]["all_points_geojson"]))
-    json_to_geojson_batch.convert_all_json_to_geojson(
-        cfg["paths"]["valid_json_folder"],
-        cfg["outputs"]["all_points_geojson"]
-    ) 
+
+    json_to_geojson_batch.convert_all_germany_with_three_checks(
+        input_folder=cfg["paths"]["valid_json_folder"],
+        polygon_states_path=cfg["state_3checks"]["polygon_states_path"],
+        output_geojson=cfg["outputs"]["all_points_geojson"],
+        summary_path=os.path.join(
+            os.path.dirname(cfg["outputs"]["all_points_geojson"]),
+            "_consistency_summary.json"
+        )
+    )
 
 
 def step_build_geojson_by_state_3checks(cfg: dict) -> None:
-    
+    """
+    Build one GeoJSON per state, only if enabled in config.
+    """
     opts = cfg.get("state_3checks", {})
     if not opts.get("enabled", False):
         print("[7/7] 3-checks per-state step is disabled in config. Skipping.")
@@ -92,7 +102,7 @@ def step_build_geojson_by_state_3checks(cfg: dict) -> None:
         return
 
     in_folder = cfg["paths"]["valid_json_folder"]
-    out_folder = cfg["outputs"]["by_state_three_checks_folder"]
+    out_folder = cfg["outputs"]["by_state_geojson_folder"]  # ✅ fixed key
     polygons_path = opts["polygon_states_path"]
 
     print("[7/7] Building per-state GeoJSONs via 3-check consistency filter...")
@@ -102,6 +112,8 @@ def step_build_geojson_by_state_3checks(cfg: dict) -> None:
         output_folder=out_folder,
         polygon_states_path=polygons_path
     )
+
+
 
 
 def main():
