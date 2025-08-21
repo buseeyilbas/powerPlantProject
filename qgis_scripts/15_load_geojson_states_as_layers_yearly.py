@@ -4,7 +4,7 @@ from qgis.core import (
     QgsVectorLayer, QgsProject, QgsFeature,
     QgsGeometry, QgsPointXY, QgsField
 )
-from PyQt5.QtCore import QVariant
+from PyQt5.QtCore import QVariant, QDate
 
 GEOJSON_FOLDER = r"C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_three_checks"
 
@@ -54,7 +54,7 @@ max_total = max(state_totals.values())
 min_total = min(state_totals.values())
 print(f"🌍 Max total={max_total:.0f}, Min total={min_total:.0f}")
 
-# -------- Pass 2: build layers with extra fields --------
+# -------- Pass 2: build yearly layers --------
 MIN_SIZE_MM = 10.0
 MAX_SIZE_MM = 20.0
 
@@ -72,7 +72,7 @@ for fname in os.listdir(GEOJSON_FOLDER):
     with open(fpath, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    power_by_type = {label: 0.0 for label in ENERGY_TYPES.values()}
+    yearly_power = {}
     coords = []
 
     for feat in data["features"]:
@@ -80,11 +80,17 @@ for fname in os.listdir(GEOJSON_FOLDER):
         coord = feat["geometry"]["coordinates"]
         coords.append(coord)
 
+        year = str(props.get("Inbetriebnahmedatum", ""))[:4]  # first 4 chars = year
+        if not year.isdigit():
+            continue
+        year = int(year)
+
         code = str(props.get("Energietraeger", "")).strip()
         label = ENERGY_TYPES.get(code, None)
         if label:
             power = parse_kw(props.get("Bruttoleistung", 0))
-            power_by_type[label] += power
+            yearly_power.setdefault(year, {lab: 0.0 for lab in ENERGY_TYPES.values()})
+            yearly_power[year][label] += power
 
     if not coords:
         print(f"❌ No coordinates in {state}")
@@ -96,30 +102,41 @@ for fname in os.listdir(GEOJSON_FOLDER):
 
     total_power = state_totals[state]
 
-    # --- compute scaled size once (constant per state) ---
-    size_mm = scale_size(total_power, min_total, max_total, MIN_SIZE_MM, MAX_SIZE_MM)
-
-    # ✅ Add fields
-    layer = QgsVectorLayer("Point?crs=EPSG:4326", f"state_pie_{state}", "memory")
+    # ✅ Create memory layer
+    layer = QgsVectorLayer("Point?crs=EPSG:4326", f"state_pie_{state}_yearly", "memory")
     provider = layer.dataProvider()
 
-    provider.addAttributes([QgsField(name, QVariant.Double) for name in power_by_type])
+    provider.addAttributes([QgsField(name, QVariant.Double) for name in ENERGY_TYPES.values()])
     provider.addAttributes([
         QgsField("StateTotalPower", QVariant.Double),
         QgsField("DE_MaxTotalPower", QVariant.Double),
         QgsField("DE_MinTotalPower", QVariant.Double),
-        QgsField("DiagramSizeMM", QVariant.Double)
+        QgsField("DiagramSizeMM", QVariant.Double),
+        QgsField("YearTotal", QVariant.Double),
+        QgsField("Year", QVariant.Date)   # 🔑 DATE format instead of Int
     ])
     layer.updateFields()
 
-    feat = QgsFeature()
-    feat.setGeometry(centroid)
-    feat.setAttributes(
-        [power_by_type[name] for name in power_by_type] +
-        [total_power, max_total, min_total, size_mm]
-    )
-    provider.addFeature(feat)
-    layer.updateExtents()
+    # --- compute scaled size once per state (constant size across years) ---
+    size_mm = scale_size(total_power, min_total, max_total, MIN_SIZE_MM, MAX_SIZE_MM)
 
+    # --- add yearly features ---
+    for year, power_dict in sorted(yearly_power.items()):
+        year_total = sum(power_dict.values())
+
+        feat = QgsFeature()
+        feat.setGeometry(centroid)
+
+        # convert to QDate (first day of the year)
+        year_date = QDate(year, 1, 1)
+
+        feat.setAttributes(
+            [power_dict[name] for name in ENERGY_TYPES.values()] +
+            [total_power, max_total, min_total, size_mm, year_total, year_date]
+        )
+        provider.addFeature(feat)
+
+        print(f"📅 {state} {year}: YearTotal={year_total:.0f}, StateTotal={total_power:.0f}, Size={size_mm:.1f} mm")
+
+    layer.updateExtents()
     QgsProject.instance().addMapLayer(layer)
-    print(f"🎨 {state}: Total={total_power:.0f}, Size={size_mm:.1f} mm (constant)")
