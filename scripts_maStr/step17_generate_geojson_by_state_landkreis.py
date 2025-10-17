@@ -1,7 +1,8 @@
 
+
 import os
-import re
 import json
+import re
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional
 
@@ -10,12 +11,11 @@ from shapely.prepared import prep
 
 
 # ========== CONFIG ==========
-INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
-OUTPUT_ROOT  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_landkreis_yearly"
+INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
+OUTPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_landkreis"
 GADM_L2_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\gadm_data\gadm41_DEU\gadm41_DEU_2.json"  # expects properties.NAME_1 and properties.NAME_2
-LON_FIELD    = "Laengengrad"
-LAT_FIELD    = "Breitengrad"
-DATE_FIELD   = "Inbetriebnahmedatum"  # used to extract year
+LON_FIELD = "Laengengrad"
+LAT_FIELD = "Breitengrad"
 # ===========================
 
 
@@ -28,8 +28,8 @@ def load_json(path: str):
 
 def safe_filename(name: str) -> str:
     """
-    Make a safe filename/folder name from a human label.
-    Keeps letters, digits, spaces, dashes, underscores, dots; replaces others with '_'.
+    Make a safe filename or folder name.
+    Keeps letters, digits, spaces, dashes, underscores and dots; replaces others with '_'.
     Collapses consecutive underscores.
     """
     name = (name or "").strip()
@@ -43,8 +43,7 @@ def safe_filename(name: str) -> str:
 
 def parse_point(entry: dict, lon_key: str = LON_FIELD, lat_key: str = LAT_FIELD) -> Optional[Point]:
     """
-    Parse lon/lat strings with either dot or comma decimals, return shapely Point.
-    Returns None if coordinates are invalid/out of bounds.
+    Parse lon/lat strings with either dot or comma decimals, return a shapely Point.
     """
     try:
         lon_raw = entry.get(lon_key, "")
@@ -58,11 +57,11 @@ def parse_point(entry: dict, lon_key: str = LON_FIELD, lat_key: str = LAT_FIELD)
         return None
 
 
-def load_gadm_l2_polygons(geojson_path: str) -> List[Tuple[str, str, dict, MultiPolygon]]:
+def load_landkreis_polygons(geojson_path: str) -> List[Tuple[str, str, dict, MultiPolygon]]:
     """
-    Load GADM Level-2 polygons and return a list of tuples:
-      (name_1, name_2, properties, multipolygon)
-    where:
+    Load GADM Level-2 polygons.
+
+    Returns a list of (name_1, name_2, properties, multipolygon), where:
       - name_1 = props["NAME_1"]  (State)
       - name_2 = props["NAME_2"]  (Landkreis)
     """
@@ -84,10 +83,11 @@ def load_gadm_l2_polygons(geojson_path: str) -> List[Tuple[str, str, dict, Multi
             continue
 
         results.append((name_1, name_2, props, geom))
+
     return results
 
 
-# ---------- Feature / year helpers ----------
+# ---------- Feature builder ----------
 
 def to_feature(entry: dict, point: Point) -> dict:
     """Build a GeoJSON Point Feature from the raw entry."""
@@ -99,44 +99,31 @@ def to_feature(entry: dict, point: Point) -> dict:
     }
 
 
-def extract_year(entry: dict, field: str = DATE_FIELD) -> str:
-    """
-    Extract YYYY from a date-like string. Accepts 'YYYY-MM-DD', 'YYYY', etc.
-    Returns 'unknown' when missing/invalid.
-    """
-    val = str(entry.get(field, "") or "").strip()
-    if len(val) >= 4 and val[:4].isdigit():
-        return val[:4]
-    return "unknown"
-
-
 # ---------- Main converter ----------
 
-def convert_state_landkreis_yearly(
+def convert_by_state_landkreis(
     input_folder: str,
-    output_root: str,
-    gadm_l2_path: str,
-    date_field: str = DATE_FIELD
+    output_folder: str,
+    gadm_l2_path: str
 ):
-    os.makedirs(output_root, exist_ok=True)
+    os.makedirs(output_folder, exist_ok=True)
 
-    # Load and prepare polygons for fast containment checks
-    l2_polys = load_gadm_l2_polygons(gadm_l2_path)
-    if not l2_polys:
-        raise RuntimeError("No Level-2 polygons loaded. Check GADM_L2_PATH and NAME_1/NAME_2 fields.")
-    prepared = [(name_1, name_2, prep(geom)) for (name_1, name_2, _props, geom) in l2_polys]
+    # Load polygons and prepare for fast containment tests
+    landkreise = load_landkreis_polygons(gadm_l2_path)
+    if not landkreise:
+        raise RuntimeError("No Level-2 polygons loaded. Check GADM_L2_PATH and that properties.NAME_1/NAME_2 exist.")
 
-    # Buckets: {state: {landkreis: {year: [features...]}}}
-    buckets: Dict[str, Dict[str, Dict[str, List[dict]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    prepared = [(name_1, name_2, props, prep(geom)) for (name_1, name_2, props, geom) in landkreise]
 
-    # Stats
+    # Accumulators: (state -> landkreis -> features)
+    grouped: Dict[str, Dict[str, List[dict]]] = defaultdict(lambda: defaultdict(list))
+
     total_files = 0
     total_entries = 0
     matched_entries = 0
     unmatched_entries = 0
     sample_unmatched = []
 
-    # Walk through all JSON files
     for root, _, files in os.walk(input_folder):
         for fname in files:
             if not fname.endswith(".json"):
@@ -157,13 +144,10 @@ def convert_state_landkreis_yearly(
                     continue
 
                 matched = False
-                for name_1, name_2, pgeom in prepared:
-                    # covers() includes boundary points; prepared geometry proxies don't surface covers(),
-                    # so we check via the wrapped geometry if available; otherwise fallback to contains().
-                    if pgeom.context.covers(pt) if hasattr(pgeom, "context") and hasattr(pgeom.context, "covers") else pgeom.contains(pt):
-                        year = extract_year(entry, date_field)
-                        feat = to_feature(entry, pt)
-                        buckets[name_1][name_2][year].append(feat)
+                for name_1, name_2, _props, pgeom in prepared:
+                    # covers() includes boundary points; if covers not available from prepared context, fallback to contains()
+                    if pgeom.covers(pt) if hasattr(pgeom.context, "covers") else pgeom.contains(pt):
+                        grouped[name_1][name_2].append(to_feature(entry, pt))
                         matched_entries += 1
                         matched = True
                         break
@@ -176,36 +160,32 @@ def convert_state_landkreis_yearly(
                             "coords": [pt.x, pt.y]
                         })
 
-    # Write: <OUTPUT_ROOT>/<STATE>/<LANDKREIS>/<YYYY>.geojson
-    for state_name, lkr_map in buckets.items():
-        state_folder = os.path.join(output_root, safe_filename(state_name))
+    # Write one GeoJSON per Landkreis under its State folder
+    for state_name, lkr_map in grouped.items():
+        state_folder = os.path.join(output_folder, safe_filename(state_name))
         os.makedirs(state_folder, exist_ok=True)
 
-        for lkr_name, years_map in lkr_map.items():
-            lkr_folder = os.path.join(state_folder, safe_filename(lkr_name))
-            os.makedirs(lkr_folder, exist_ok=True)
+        for lkr_name, feats in lkr_map.items():
+            if not feats:
+                continue
+            out_name = safe_filename(lkr_name) + ".geojson"
+            out_path = os.path.join(state_folder, out_name)
+            geojson = {"type": "FeatureCollection", "features": feats}
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(geojson, f, ensure_ascii=False, indent=2)
+            print(f"✅ Saved {len(feats):5d} features → {state_name}/{out_name}")
 
-            for year, feats in years_map.items():
-                if not feats:
-                    continue
-                out_path = os.path.join(lkr_folder, f"{year}.geojson")
-                geojson = {"type": "FeatureCollection", "features": feats}
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(geojson, f, ensure_ascii=False, indent=2)
-                print(f"✅ Saved {len(feats):5d} features → {state_name}/{lkr_name}/{year}.geojson")
-
-    # Summary
+    # Write summary
     summary = {
         "files_processed": total_files,
         "entries_seen": total_entries,
         "matched_entries": matched_entries,
         "unmatched_entries": unmatched_entries,
         "unmatched_samples_first_200": sample_unmatched,
-        "output_root": output_root,
+        "output_folder": output_folder,
         "gadm_l2_path": gadm_l2_path,
-        "date_field": date_field,
     }
-    log_path = os.path.join(output_root, "_state_landkreis_yearly_summary.json")
+    log_path = os.path.join(output_folder, "_state_landkreis_summary.json")
     with open(log_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
@@ -214,4 +194,4 @@ def convert_state_landkreis_yearly(
 
 
 if __name__ == "__main__":
-    convert_state_landkreis_yearly(INPUT_FOLDER, OUTPUT_ROOT, GADM_L2_PATH, DATE_FIELD)
+    convert_by_state_landkreis(INPUT_FOLDER, OUTPUT_FOLDER, GADM_L2_PATH)

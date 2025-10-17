@@ -5,17 +5,35 @@ from qgis.core import QgsVectorLayer
 GEOJSON_FOLDER = r"C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_three_checks"
 
 # === ENERGY TYPE MAPPING ===
-ENERGY_TYPES = {
-    "2403": "Deep Geothermal",
-    "2405": "Sewage Gas",
-    "2406": "Pressure Relief",
-    "2493": "Biogas",
+# Keep these five as distinct categories:
+PRIMARY_TYPES =  {
     "2495": "Photovoltaics",
-    "2496": "Battery",
     "2497": "Onshore Wind",
     "2498": "Hydropower",
-    "2957": "Pressure Relief CHP",
-    "2958": "Pressure Relief Small"
+    "2493": "Biogas",
+    "2496": "Battery",
+    
+#    "2403": "Deep Geothermal",
+#    "2405": "Sewage Gas",
+#    "2406": "Pressure Relief",
+#    "2957": "Pressure Relief CHP",
+#    "2958": "Pressure Relief Small"
+}
+
+# Everything below is grouped into "Others":
+OTHERS_CODES = {"2403", "2405", "2406", "2957", "2958"}
+
+# Optional: any unknown/rare codes will also fall back to "Others".
+GROUP_ORDER = ["Photovoltaics", "Onshore Wind", "Hydropower", "Biogas", "Battery", "Others"]
+
+# (Optional) color map for pie charts (same as legend)
+GROUP_COLORS = {
+    "Photovoltaics": "yellow",
+    "Battery": "purple",
+    "Onshore Wind": "lightskyblue",
+    "Hydropower": "darkblue",
+    "Biogas": "darkgreen",
+    "Others": "gray",
 }
 
 def parse_kw(value):
@@ -39,17 +57,27 @@ for fname in os.listdir(GEOJSON_FOLDER):
         print(f"❌ Failed to load {fname}")
         continue
 
-    power_by_type = {code: 0.0 for code in ENERGY_TYPES}
+    # Grouped totals (five main + Others)
+    power_by_group = {g: 0.0 for g in GROUP_ORDER}
 
     for feat in layer.getFeatures():
-        et = str(feat["Energietraeger"])
-        power = parse_kw(feat["Bruttoleistung"])
-        if et in power_by_type:
-            power_by_type[et] += power
+        code = str(feat["Energietraeger"])
+        kw = parse_kw(feat["Bruttoleistung"])
 
+        if code in PRIMARY_TYPES:
+            key = PRIMARY_TYPES[code]
+        elif code in OTHERS_CODES:
+            key = "Others"
+        else:
+            key = "Others"  # fallback for any unexpected code
+
+        power_by_group[key] += kw
+
+    # Print in fixed order, skip zeros
     print(f"\n📍 State: {state_name}")
-    for code, total_power in power_by_type.items():
-        if total_power > 0:
-            print(f"  - {ENERGY_TYPES[code]}: {total_power:.1f} kW")
+    for g in GROUP_ORDER:
+        total_kw = power_by_group[g]
+        if total_kw > 0:
+            print(f"  - {g}: {total_kw:.1f} kW")
 
 print("\n✅ Done.")

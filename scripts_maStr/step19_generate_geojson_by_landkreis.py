@@ -9,7 +9,7 @@ from shapely.geometry import shape, MultiPolygon, Polygon, Point
 from shapely.prepared import prep
 
 # ========== CONFIG ==========
-INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
 OUTPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_landkreis"
 GADM_L2_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\gadm_data\gadm41_DEU\gadm41_DEU_2.json"  # expects properties.NAME_2
 LON_FIELD = "Laengengrad"

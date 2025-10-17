@@ -34,7 +34,7 @@ def filter_by_state_codes(input_folder: str, output_base_folder: str, state_key:
                     print(f"✔ Saved {len(filtered):>4} entries → {code}/{file_name}")
 
 if __name__ == "__main__":
-    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
     output_base_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\filtered_json_by_state_code_bundesland"
     state_key = "Bundesland"
 

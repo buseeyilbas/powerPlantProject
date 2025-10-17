@@ -7,7 +7,7 @@ from typing import Dict, Optional, Tuple, List
 from shapely.geometry import shape, MultiPolygon, Polygon, Point
 
 # ========== CONFIG ==========
-INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
 OUTPUT_ROOT  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
 POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # features[].properties.name
 DATE_FIELD = "Inbetriebnahmedatum"  # field used to derive year

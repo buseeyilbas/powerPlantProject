@@ -44,7 +44,7 @@ def filter_by_state_prefix(input_folder: str, output_base_folder: str):
                 print(f"✔ Saved {len(entries):>4} entries → {prefix}/{file_name}")
 
 if __name__ == "__main__":
-    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
     output_base_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\filtered_json_by_state_gemeindeschluessel"
 
     filter_by_state_prefix(input_folder, output_base_folder)

@@ -9,7 +9,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 
 
-BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
+BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
 
 # how many plants are commissioned per year, per state
 def count_plants_per_year():

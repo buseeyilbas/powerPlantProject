@@ -7,7 +7,7 @@ from typing import Dict, Tuple, Optional
 from shapely.geometry import shape, MultiPolygon, Polygon, Point
 
 # ========== CONFIG ==========
-INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
 OUTPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_three_checks"
 POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # properties.name expected
 # ============================

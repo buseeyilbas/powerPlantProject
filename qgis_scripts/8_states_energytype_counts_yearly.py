@@ -1,4 +1,5 @@
-
+# Filename: 8_states_energytype_counts_yearly.py
+# Purpose: Yearly plant COUNTS per state, grouped into 5 main energy types + "Others", with fixed colors.
 
 import os
 import json
@@ -9,51 +10,46 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from qgis.PyQt.QtWidgets import QDialog, QTabWidget, QWidget, QVBoxLayout
 from qgis.utils import iface
 
+BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_three_checks"
 
-BASE_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_polygon_yearly"
+# --- Supervisor-approved grouping (codes -> 5 main groups, everything else -> Others) ---
+PRIMARY_TYPES = {
+    "2495": "Photovoltaics",
+    "2497": "Onshore Wind",
+    "2498": "Hydropower",
+    "2493": "Biogas",
+    "2496": "Battery",
+}
+# These known extra codes (and any unknown code) will be folded into "Others"
+OTHERS_CODES = {"2403", "2405", "2406", "2957", "2958"}
 
-# Energy source color map
-ENERGY_TYPE_COLORS = {
-    "Deep Geothermal Energy (Tiefe Geothermie)": "red",
-    "Sewage Gas (Klärgas)": "purple",
-    "Pressure Relief Energy (Druckentspannung)": "pink",
-    "Biogas (Biogas)": "lightgreen",
-    "Photovoltaics (Photovoltaik)": "gold",
-    "Battery Storage (Stromspeicher)": "gray",
-    "Onshore Wind Energy (Windenergie an Land)": "white",
-    "Hydropower (Wasserkraft)": "skyblue",
-    "Pressure Relief (CHP Mix) (Druckentspannung - BHKW, Mischform)": "orange",
-    "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)": "orange",
-    "unbekannt": "black"
+GROUP_ORDER = ["Photovoltaics", "Onshore Wind", "Hydropower", "Biogas", "Battery", "Others"]
+
+# --- Fixed color palette (legend & charts) ---
+GROUP_COLORS = {
+    "Photovoltaics": "yellow",
+    "Battery": "purple",
+    "Onshore Wind": "lightskyblue",
+    "Hydropower": "darkblue",
+    "Biogas": "darkgreen",
+    "Others": "gray",
 }
 
-# Energy type labels (code to label)
-energy_labels = {
-    "2403": "Deep Geothermal Energy (Tiefe Geothermie)",
-    "2405": "Sewage Gas (Klärgas)",
-    "2406": "Pressure Relief Energy (Druckentspannung)",
-    "2493": "Biogas (Biogas)",
-    "2495": "Photovoltaics (Photovoltaik)",
-    "2496": "Battery Storage (Stromspeicher)",
-    "2497": "Onshore Wind Energy (Windenergie an Land)",
-    "2498": "Hydropower (Wasserkraft)",
-    "2957": "Pressure Relief (CHP Mix) (Druckentspannung - BHKW, Mischform)",
-    "2958": "Pressure Relief (Small-scale Plants) (Druckentspannung - kleine Anlagen)"
-}
+def map_code_to_group(code: str) -> str:
+    """Return one of the 5 main groups, otherwise 'Others'."""
+    if code in PRIMARY_TYPES:
+        return PRIMARY_TYPES[code]
+    return "Others"
 
-
-ALLOWED_ENERGY_TYPES = set(energy_labels.values())
-
-# Energy type parse
-def parse_energy_type(feature):
+# --- Parse helper ---
+def parse_energy_group(feature) -> str:
     props = feature.get("properties", {})
     code = str(props.get("Energietraeger", "")).strip()
-    label = energy_labels.get(code, "unbekannt")
-    return label.strip()
+    return map_code_to_group(code)
 
-# Data collector
+# --- Data collector: state → year → group → count ---
 def process_geojson_files():
-    result = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))  # state → year → type → count
+    result = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
 
     for state_name in os.listdir(BASE_DIR):
         state_path = os.path.join(BASE_DIR, state_name)
@@ -70,52 +66,54 @@ def process_geojson_files():
                 continue
 
             file_path = os.path.join(state_path, file)
-            with open(file_path, "r", encoding="utf-8") as f:
-                try:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
                     geo = json.load(f)
-                    for feature in geo["features"]:
-                        e_type = parse_energy_type(feature)
-                        result[state_name][year][e_type] += 1
-                except Exception as e:
-                    print(f"Error reading {file_path}: {e}")
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+                continue
+
+            for feature in geo.get("features", []):
+                grp = parse_energy_group(feature)
+                result[state_name][year][grp] += 1
+
     return result
 
-# Plot with toolbar and tabs
+# --- Plot with toolbar and tabs ---
 def plot_counts_tabbed(aggregated_data):
     tab_widget = QTabWidget()
 
     for state, year_data in sorted(aggregated_data.items()):
         all_years = sorted(year_data.keys())
-        all_types = [label for label in energy_labels.values()] + ["unbekannt"]
 
-        # Prepare stacked bar data
+        # Build stacked series only for groups that appear at least once
         stacked_data = {
-            t: [year_data[y].get(t, 0) for y in all_years]
-            for t in all_types
-            if any(year_data[y].get(t, 0) > 0 for y in all_years)
+            g: [year_data[y].get(g, 0) for y in all_years]
+            for g in GROUP_ORDER
+            if any(year_data[y].get(g, 0) > 0 for y in all_years)
         }
 
         fig, ax = plt.subplots(figsize=(10, 6))
         bottom = [0] * len(all_years)
-        
-        
-        fig.patch.set_facecolor("#f7f7f5")  # figure outer background
-        ax.set_facecolor("#e6e6e6")         # plot area background
 
-        for t in stacked_data:
+        # (Optional) background styling
+        fig.patch.set_facecolor("#f7f7f5")
+        ax.set_facecolor("#e6e6e6")
+
+        for g in stacked_data:
             ax.bar(
                 all_years,
-                stacked_data[t],
+                stacked_data[g],
                 bottom=bottom,
-                label=t,
-                color=ENERGY_TYPE_COLORS.get(t, "gray")
+                label=g,
+                color=GROUP_COLORS.get(g, "gray")
             )
-            bottom = [bottom[i] + stacked_data[t][i] for i in range(len(all_years))]
+            bottom = [bottom[i] + stacked_data[g][i] for i in range(len(all_years))]
 
-        ax.set_title(f"{state.upper()} - Number of Power Plants per Year")
+        ax.set_title(f"{state.upper()} - Number of Power Plants per Year (Grouped)")
         ax.set_xlabel("Year")
         ax.set_ylabel("Number of Plants")
-        ax.legend(fontsize=8, loc='upper left', framealpha=1, facecolor="#f0f0f0")
+        ax.legend(fontsize=8, loc="upper left", framealpha=1, facecolor="#f0f0f0")
         ax.grid(True)
 
         canvas = FigureCanvas(fig)
@@ -128,16 +126,14 @@ def plot_counts_tabbed(aggregated_data):
         tab.setLayout(layout)
         tab_widget.addTab(tab, state)
 
-
     dialog = QDialog()
-    dialog.setWindowTitle("Energy Type Charts by State")
+    dialog.setWindowTitle("Energy Type Charts by State (Grouped)")
     dialog.setMinimumSize(1200, 700)
-
     layout = QVBoxLayout()
     layout.addWidget(tab_widget)
     dialog.setLayout(layout)
     dialog.exec_()
 
-
+# Run
 data = process_geojson_files()
 plot_counts_tabbed(data)

@@ -4,16 +4,12 @@ fig, ax = plt.subplots(figsize=(7, 5))
 ax.axis('off')
 
 energy_types = [
-    ("red", "Deep Geothermal Energy - (Tiefe Geothermie)"),
-    ("purple", "Sewage Gas - (Klärgas)"),
-    ("pink", "Pressure Relief Energy - (Druckentspannung)"),
-    ("lightgreen", "Biogas - (Biogas)"),
-    ("gold", "Photovoltaics - (Photovoltaik)"),
-    ("gray", "Battery Storage - (Stromspeicher)"),
-    ("white", "Onshore Wind Energy - (Windenergie an Land)"),
-    ("skyblue", "Hydropower - (Wasserkraft)"),
-    ("orange", "Pressure Relief (CHP Mix) - (Druckentspannung - BHKW, Mischform)"),
-    ("orange", "Pressure Relief (Small-scale Plants) - (Druckentspannung - kleine Anlagen)")
+    ("yellow", "Photovoltaics - (Photovoltaik)"),
+    ("lightskyblue", "Onshore Wind Energy - (Windenergie an Land)"),
+    ("darkblue", "Hydropower - (Wasserkraft)"),
+    ("darkgreen", "Biogas - (Biogas)"),
+    ("purple", "Battery Storage - (Stromspeicher)"),
+    ("gray", "Others -(Andere)"),
 ]
 
 y = 1.0

@@ -32,5 +32,5 @@ def list_installation_years(folder_path: str, key: str = "Inbetriebnahmedatum") 
         print(f"{year}: {count} entries")
 
 if __name__ == "__main__":
-    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
+    input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
     list_installation_years(input_folder)
