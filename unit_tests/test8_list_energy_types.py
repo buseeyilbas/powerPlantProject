@@ -6,7 +6,7 @@ import builtins
 import io
 import pytest
 
-import list_energy_types as mod
+import step8_list_energy_types as mod
 
 
 def test_list_energy_codes_basic(tmp_path, capsys):

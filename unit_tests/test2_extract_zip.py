@@ -16,7 +16,7 @@ import os
 import zipfile
 from pathlib import Path
 
-import extract_zip  # imported via conftest.py sys.path edit
+import step2_extract_zip  # imported via conftest.py sys.path edit
 
 
 # Test case for input directory does not exist

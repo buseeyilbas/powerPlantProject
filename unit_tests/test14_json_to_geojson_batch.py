@@ -7,7 +7,7 @@ import builtins
 import types
 import pytest
 
-import json_to_geojson_batch as mod
+import step14_json_to_geojson_batch as mod
 
 
 def rjson(path):

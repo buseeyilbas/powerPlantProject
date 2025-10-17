@@ -15,7 +15,7 @@ from pathlib import Path
 import json
 import pytest
 
-import filter_json_by_state_gemeindeschluessel as mod  # module under test
+import step12_filter_json_by_state_gemeindeschluessel as mod  # module under test
 
 
 # ---------- helpers ----------

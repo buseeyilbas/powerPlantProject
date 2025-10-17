@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import requests  # only for HTTPError type
 
-import download_mastr  # imported thanks to conftest.py sys.path injection
+import step1_download_mastr  # imported thanks to conftest.py sys.path injection
 
 
 class FakeResponse:

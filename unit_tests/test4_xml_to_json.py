@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 import pytest
-import xml_to_json as mod
+import step4_xml_to_json as mod
 
 
 def test_xml_file_to_json_valid_and_invalid(tmp_path, capsys):

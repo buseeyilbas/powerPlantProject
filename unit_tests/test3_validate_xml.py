@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 import pytest
 import shutil
 
-import validate_xml as mod
+import step3_validate_xml as mod
 
 
 def test_is_valid_xml_true_and_false(tmp_path, capsys):

@@ -6,7 +6,7 @@ import types
 from pathlib import Path
 import pytest
 
-import valid_json as mod
+import step5_valid_json as mod
 
 
 # ---------- Tests for is_valid ----------
