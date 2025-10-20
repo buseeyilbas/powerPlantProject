@@ -1,12 +1,23 @@
-# test_list_states.py
+# test_7_list_states.py
+"""
+Unit tests for step7_list_states.list_state_codes.
+
+Covers:
+1) Basic listing and deduplication of Bundesland codes.
+2) Handling of invalid JSON files.
+3) Behavior with empty folder (no JSON files).
+"""
 
 import json
 from pathlib import Path
 import pytest
-import step7_list_states as mod
+
+# ✅ standardized alias
+import step7_list_states as list_states
 
 
 def test_list_state_codes_basic(tmp_path, capsys):
+    """Should list unique Bundesland codes from multiple JSON files."""
     # Arrange: create JSON files with Bundesland codes
     file1 = tmp_path / "a.json"
     file2 = tmp_path / "b.json"
@@ -28,7 +39,7 @@ def test_list_state_codes_basic(tmp_path, capsys):
     file3.write_text("Ignore me", encoding="utf-8")
 
     # Act
-    mod.list_state_codes(str(tmp_path))
+    list_states.list_state_codes(str(tmp_path))
 
     # Assert output
     out = capsys.readouterr().out
@@ -43,12 +54,12 @@ def test_list_state_codes_basic(tmp_path, capsys):
 
 
 def test_list_state_codes_handles_invalid_json(tmp_path, capsys):
-    # Arrange: bad JSON file
+    """Invalid JSON file should be skipped gracefully."""
     bad_file = tmp_path / "bad.json"
     bad_file.write_text("{ not valid json", encoding="utf-8")
 
     # Act
-    mod.list_state_codes(str(tmp_path))
+    list_states.list_state_codes(str(tmp_path))
 
     # Assert
     out = capsys.readouterr().out
@@ -56,11 +67,16 @@ def test_list_state_codes_handles_invalid_json(tmp_path, capsys):
 
 
 def test_list_state_codes_empty_folder(tmp_path, capsys):
+    """Empty folder should not crash and print empty summary."""
     # Act
-    mod.list_state_codes(str(tmp_path))
+    list_states.list_state_codes(str(tmp_path))
 
-    # Assert: No codes found
+    # Assert
     out = capsys.readouterr().out
     assert "✔ Unique Bundesland codes found:" in out
-    # Should have no digits in the output
     assert not any(line.strip().isdigit() for line in out.splitlines())
+
+
+# --- Run standalone ---
+if __name__ == "__main__":
+    pytest.main(["-v", __file__])

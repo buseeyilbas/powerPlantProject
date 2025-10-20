@@ -1,4 +1,8 @@
-# test_valid_json.py
+# test_5_valid_json.py
+"""
+Unit tests for step5_valid_json module.
+Covers both is_valid() and file-level processing logic.
+"""
 
 import json
 import sys
@@ -6,7 +10,8 @@ import types
 from pathlib import Path
 import pytest
 
-import step5_valid_json as mod
+# ✅ standardized alias import
+import step5_valid_json as valid_json
 
 
 # ---------- Tests for is_valid ----------
@@ -20,27 +25,28 @@ def test_is_valid_true_and_false_cases():
         "EegMaStRNummer": "E123",
     }
     # All keys present and non-empty → valid
-    assert mod.is_valid(base_entry) is True
+    assert valid_json.is_valid(base_entry) is True
 
     # Missing key
     entry_missing = dict(base_entry)
     del entry_missing["Bundesland"]
-    assert mod.is_valid(entry_missing) is False
+    assert valid_json.is_valid(entry_missing) is False
 
     # Empty value
     entry_empty = dict(base_entry)
     entry_empty["Bundesland"] = ""
-    assert mod.is_valid(entry_empty) is False
+    assert valid_json.is_valid(entry_empty) is False
 
     # None value
     entry_none = dict(base_entry)
     entry_none["Bundesland"] = None
-    assert mod.is_valid(entry_none) is False
+    assert valid_json.is_valid(entry_none) is False
 
 
 # ---------- Integration-like test for file processing ----------
 
 def test_valid_json_file_processing(tmp_path, capsys, monkeypatch):
+    """Simulates full valid_json.process_all_jsons behavior."""
     # Arrange: prepare fake input and output folders
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
@@ -48,8 +54,8 @@ def test_valid_json_file_processing(tmp_path, capsys, monkeypatch):
     output_dir.mkdir()
 
     # Patch module constants to use temp dirs
-    monkeypatch.setattr(mod, "input_folder", str(input_dir))
-    monkeypatch.setattr(mod, "output_folder", str(output_dir))
+    monkeypatch.setattr(valid_json, "input_folder", str(input_dir))
+    monkeypatch.setattr(valid_json, "output_folder", str(output_dir))
 
     # Create files: valid.json (1 valid, 1 invalid), empty.json (no valid), bad.json (invalid JSON)
     valid_data = [
@@ -78,7 +84,6 @@ def test_valid_json_file_processing(tmp_path, capsys, monkeypatch):
     (input_dir / "bad.json").write_text("{ not valid json", encoding="utf-8")
 
     # Act: re-run the file processing loop manually
-    # (We don't import again, so simulate the for-loop)
     total_files = 0
     total_valid_entries = 0
     for file_name in sorted(input_dir.iterdir()):
@@ -91,7 +96,7 @@ def test_valid_json_file_processing(tmp_path, capsys, monkeypatch):
                 print(f"⚠️ Skipped invalid JSON: {file_name.name}")
                 continue
 
-        valid_entries = [entry for entry in data if mod.is_valid(entry)]
+        valid_entries = [entry for entry in data if valid_json.is_valid(entry)]
         if not valid_entries:
             print(f"❌ No valid entries in: {file_name.name}")
             continue
@@ -121,3 +126,8 @@ def test_valid_json_file_processing(tmp_path, capsys, monkeypatch):
     assert "✅ valid.json: 1 valid entries saved." in out
     assert "📂 JSON files processed: 1" in out
     assert "✔️ Total valid entries extracted: 1" in out
+
+
+# --- Run standalone ---
+if __name__ == "__main__":
+    pytest.main(["-v", __file__])

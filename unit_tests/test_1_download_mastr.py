@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import requests  # only for HTTPError type
 
-import step1_download_mastr  # imported thanks to conftest.py sys.path injection
+import step1_download_mastr as download_mastr
 
 
 class FakeResponse:
@@ -56,7 +56,7 @@ def test_download_success_creates_folder_and_writes_file(temp_download_dir, samp
     # Prepare fake streamed chunks (bytes)
     chunks = [b"AAA", b"BBB", b"CCC"]
 
-    with patch("download_mastr.requests.get", side_effect=_fake_get_factory(200, chunks)) as mock_get:
+    with patch("step1_download_mastr.requests.get", side_effect=_fake_get_factory(200, chunks)) as mock_get:
         result_path = download_mastr.download_file(sample_url, str(dest))
 
     # Filesystem assertions
@@ -90,10 +90,10 @@ def test_download_uses_existing_folder_without_recreating(temp_download_dir, sam
         os.makedirs(path, exist_ok=exist_ok)  # should not be hit if folder already exists
 
     # Patch os.makedirs with a wrapper that counts calls
-    monkeypatch.setattr("download_mastr.os.makedirs", fake_makedirs)
+    monkeypatch.setattr("step1_download_mastr.os.makedirs", fake_makedirs)
 
     # Stream one small chunk
-    with patch("download_mastr.requests.get", side_effect=_fake_get_factory(200, [b"X"])):
+    with patch("step1_download_mastr.requests.get", side_effect=_fake_get_factory(200, [b"X"])):
         download_mastr.download_file(sample_url, str(dest))
 
     # Since the directory existed, makedirs should not have been called
@@ -108,7 +108,7 @@ def test_download_stream_chunk_size_is_8192(sample_url, temp_download_dir):
     def fake_get(*args, **kwargs):
         return fake_resp
 
-    with patch("download_mastr.requests.get", side_effect=fake_get):
+    with patch("step1_download_mastr.requests.get", side_effect=fake_get):
         dest = temp_download_dir
         download_mastr.download_file(sample_url, str(dest))
 
@@ -119,7 +119,7 @@ def test_download_stream_chunk_size_is_8192(sample_url, temp_download_dir):
 # Test that ensures the download function raises HTTPError for bad status codes
 def test_download_propagates_http_errors(sample_url, temp_download_dir):
     """When HTTP status is >= 400, the function should raise requests.HTTPError."""
-    with patch("download_mastr.requests.get", side_effect=_fake_get_factory(404, [])):
+    with patch("step1_download_mastr.requests.get", side_effect=_fake_get_factory(404, [])):
         try:
             download_mastr.download_file(sample_url, str(temp_download_dir))
             assert False, "Expected HTTPError to be raised"
@@ -129,7 +129,7 @@ def test_download_propagates_http_errors(sample_url, temp_download_dir):
 # Test that ensures the download function returns the correct path and filename extraction
 def test_returns_correct_path_and_filename_extraction(sample_url, temp_download_dir):
     """Function should return the absolute file path constructed from destination + basename(url)."""
-    with patch("download_mastr.requests.get", side_effect=_fake_get_factory(200, [b"OK"])):
+    with patch("step1_download_mastr.requests.get", side_effect=_fake_get_factory(200, [b"OK"])):
         result = download_mastr.download_file(sample_url, str(temp_download_dir))
 
     expected = temp_download_dir / os.path.basename(sample_url)

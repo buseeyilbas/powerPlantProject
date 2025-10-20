@@ -1,22 +1,30 @@
-# test_xml_to_json.py
+# test_4_xml_to_json.py
+"""
+Unit tests for step4_xml_to_json module.
+Tests conversion from XML files to JSON format.
+"""
 
 import json
 from pathlib import Path
 import pytest
-import step4_xml_to_json as mod
+
+# ✅ standardized alias import
+import step4_xml_to_json as xml_to_json
 
 
 def test_xml_file_to_json_valid_and_invalid(tmp_path, capsys):
+    """Valid XML → creates JSON; Invalid XML → prints warning."""
     # Arrange: valid XML file
     valid_xml = tmp_path / "valid.xml"
     valid_xml.write_text(
-        "<root><item><name>Test1</name><value>123</value></item><item><name>Test2</name><value>456</value></item></root>",
+        "<root><item><name>Test1</name><value>123</value></item>"
+        "<item><name>Test2</name><value>456</value></item></root>",
         encoding="utf-8"
     )
     json_output = tmp_path / "valid.json"
 
     # Act
-    mod.xml_file_to_json(str(valid_xml), str(json_output))
+    xml_to_json.xml_file_to_json(str(valid_xml), str(json_output))
 
     # Assert valid conversion
     assert json_output.exists()
@@ -34,7 +42,7 @@ def test_xml_file_to_json_valid_and_invalid(tmp_path, capsys):
     json_output_invalid = tmp_path / "invalid.json"
 
     # Act
-    mod.xml_file_to_json(str(invalid_xml), str(json_output_invalid))
+    xml_to_json.xml_file_to_json(str(invalid_xml), str(json_output_invalid))
 
     # Assert: no file created for invalid XML
     assert not json_output_invalid.exists()
@@ -44,7 +52,8 @@ def test_xml_file_to_json_valid_and_invalid(tmp_path, capsys):
 
 
 def test_batch_convert_xml_to_json(tmp_path):
-    # Arrange: input folder with 2 XML files
+    """Batch conversion should handle multiple files and skip non-XML ones."""
+    # Arrange
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     input_dir.mkdir()
@@ -56,18 +65,22 @@ def test_batch_convert_xml_to_json(tmp_path):
     xml2 = input_dir / "file2.xml"
     xml2.write_text("<root><row><b>2</b></row></root>", encoding="utf-8")
 
-    # Also add a non-XML file to ensure it is skipped
+    # Add a non-XML file to ensure it is skipped
     (input_dir / "skip.txt").write_text("Not XML", encoding="utf-8")
 
     # Act
-    mod.batch_convert_xml_to_json(str(input_dir), str(output_dir))
+    xml_to_json.batch_convert_xml_to_json(str(input_dir), str(output_dir))
 
-    # Assert: two JSON files created
+    # Assert
     files = sorted([p.name for p in output_dir.iterdir()])
     assert files == ["file1.json", "file2.json"]
 
-    # Validate JSON contents
     data1 = json.loads((output_dir / "file1.json").read_text(encoding="utf-8"))
     assert data1 == [{"a": "1"}]
     data2 = json.loads((output_dir / "file2.json").read_text(encoding="utf-8"))
     assert data2 == [{"b": "2"}]
+
+
+# --- Run standalone ---
+if __name__ == "__main__":
+    pytest.main(["-v", __file__])
