@@ -47,7 +47,7 @@ else:
     print("⚠️ Could not add OpenStreetMap.")
 
 # --- 3) Add DEU_mask as 'Inverted Polygons' (outside = solid white) -----------
-states_path = os.path.join(BASE_PATH, "gadm41_DEU_1.json")
+states_path = os.path.join(BASE_PATH, "gadm41_DEU_0.json")
 mask_layer = QgsVectorLayer(states_path, "DEU_mask", "ogr")   # file-backed, NOT scratch
 if not mask_layer.isValid():
     raise RuntimeError("Could not load gadm41_DEU_1.json for DEU_mask.")
