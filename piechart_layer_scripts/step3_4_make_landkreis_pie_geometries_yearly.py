@@ -1,14 +1,8 @@
-"""
-Make pie POLYGONS from the step3_1 points with nationwide sizing,
-and write both nationwide + per-state pie layers under the same 'nationwide_landkreis_pies' root.
-
-Inputs:
-  BASE/de_landkreis_pies.geojson
-  BASE/landkreis_pie_style_meta.json
-Outputs:
-  BASE/de_landkreis_pie.geojson
-  BASE/<state-slug>/de_<state-slug>_landkreis_pie.geojson
-"""
+# Filename: step3_4_make_landkreis_pie_geometries_yearly.py
+# Purpose : Build Landkreis pie POLYGONS per YEAR BIN, inside <bin>/<state>/ folders.
+# Inputs  : <BASE>/<bin>/<state>/de_<state>_landkreis_pies_<bin>.geojson
+#           <BASE>/<bin>/landkreis_pie_style_meta_<bin>.json (for per-bin scaling)
+# Outputs : <BASE>/<bin>/<state>/de_<state>_landkreis_pie_<bin>.geojson
 
 from pathlib import Path
 import math, json
@@ -16,23 +10,15 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 from pyproj import Transformer
 
-# -------- PATHS --------
-BASE       = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\nationwide_landkreis_pies")
-IN_FILE    = BASE / "de_landkreis_pies.geojson"
-META_FILE  = BASE / "landkreis_pie_style_meta.json"
-OUT_FILE   = BASE / "de_landkreis_pie.geojson"
+BASE = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\nationwide_landkreis_pies_yearly")
 
-# ---- Radius scaling (meters), uses nationwide vmin/vmax ----
+# scaling per bin
 R_MIN_M = 10000.0
 R_MAX_M = 50000.0
-
-# ---- Overlap handling ----
-GAP_M          = 2000.0
+GAP_M   = 2000.0
 MAX_NUDGE_ITER = 120
 
-# ---- Energy fields order ----
 PARTS = ["pv_kw", "wind_kw", "hydro_kw", "battery_kw", "biogas_kw", "others_kw"]
-
 PALETTE_RGB = {
     "pv_kw":      (255,212,  0),
     "battery_kw": (126, 87,194),
@@ -43,8 +29,7 @@ PALETTE_RGB = {
 }
 
 def scale_linear(val, vmin, vmax, omin, omax):
-    if vmax <= vmin:
-        return (omin + omax) / 2.0
+    if vmax <= vmin: return (omin + omax) / 2.0
     t = (val - vmin) / (vmax - vmin)
     t = 0.0 if t < 0 else (1.0 if t > 1 else t)
     return omin + t * (omax - omin)
@@ -59,20 +44,17 @@ def ring_pts(cxy, r, th1, th2, n=48):
 
 def make_pie(center_m, radius_m, ordered_pairs):
     total = sum(v for _, v in ordered_pairs if v and v > 0)
-    if total <= 0:
-        return [], None
-    slices, shares = [], []
-    ang = 0.0
-    for k, v in ordered_pairs:
+    if total <= 0: return [], None
+    slices, shares, ang = [], [], 0.0
+    for key, v in ordered_pairs:
         share = (v/total) if v and v > 0 else 0.0
         dth = share * 2*math.pi
-        t1, t2 = ang, ang + dth
-        ang = t2
+        t1, t2 = ang, ang + dth; ang = t2
         if share > 0:
             arc = ring_pts(center_m, radius_m, t1, t2)
             poly = Polygon([center_m] + arc + [center_m])
-            slices.append((k, share, poly))
-        shares.append((k, share))
+            slices.append((key, share, poly))
+        shares.append((key, share))
     anchor_key = max(shares, key=lambda kv: kv[1])[0] if shares else None
     return slices, anchor_key
 
@@ -94,12 +76,10 @@ def repulse_centers(centers):
                     pi['x'] -= ux * push; pi['y'] -= uy * push
                     pj['x'] += ux * push; pj['y'] += uy * push
                     moved = True
-        if not moved:
-            break
+        if not moved: break
 
 def pies_from_points(gdf_points, vmin, vmax, out_path: Path):
-    if gdf_points.empty:
-        return 0
+    if gdf_points.empty: return 0
     if gdf_points.crs is None or gdf_points.crs.to_epsg() != 4326:
         gdf_points = gdf_points.set_crs("EPSG:4326", allow_override=True)
 
@@ -125,51 +105,54 @@ def pies_from_points(gdf_points, vmin, vmax, out_path: Path):
             poly_deg = Polygon([to_deg.transform(x, y) for (x, y) in poly_m.exterior.coords])
             R, G, B = PALETTE_RGB[k]
             out_rows.append({
-                "state_slug":   r.get("state_slug"),
-                "name":         r.get("name", r.get("kreis_name", r.get("landkreis", ""))),
-                "energy_type":  k,
-                "power_kw":     float(dict(parts).get(k, 0.0)),
-                "share":        float(share),
-                "total_kw":     float(r.get("total_kw", 0.0)),
-                "radius_m":     float(c['r']),
+                "name":        r.get("name", r.get("kreis_name", "")),
+                "energy_type": k,
+                "power_kw":    float(dict(parts).get(k, 0.0)),
+                "share":       float(share),
+                "total_kw":    float(r.get("total_kw", 0.0)),
+                "radius_m":    float(c['r']),
                 "label_anchor": 1 if (anchor_key == k) else 0,
+                "year_bin":    r.get("year_bin_label", r.get("year_bin", "")),
+                "year_bin_slug": r.get("year_bin_slug", ""),
                 "color_r": R, "color_g": G, "color_b": B,
-                "geometry":     poly_deg
+                "geometry":    poly_deg
             })
 
-    out_gdf = gpd.GeoDataFrame(out_rows, geometry="geometry", crs="EPSG:4326")
+    out = gpd.GeoDataFrame(out_rows, geometry="geometry", crs="EPSG:4326")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_gdf.to_file(out_path, driver="GeoJSON")
-    return len(out_gdf)
+    out.to_file(out_path, driver="GeoJSON")
+    return len(out)
 
 def main():
-    if not IN_FILE.exists():
-        raise FileNotFoundError(f"Missing input: {IN_FILE}")
+    # Iterate bins (directories under BASE). Each bin has its meta + state folders with *points*.
+    for bin_dir in sorted([p for p in BASE.iterdir() if p.is_dir()]):
+        meta = bin_dir / f"landkreis_pie_style_meta_{bin_dir.name}.json"
+        if not meta.exists():
+            print(f"[SKIP] No meta for bin {bin_dir.name}")
+            continue
+        meta_obj = json.loads(meta.read_text(encoding="utf-8"))
+        vmin = float(meta_obj.get("min_total_kw", 0.0))
+        vmax = float(meta_obj.get("max_total_kw", 1.0))
+        if vmax <= vmin: vmax = vmin + 1.0
 
-    base_points = gpd.read_file(IN_FILE)
-    if base_points.crs is None or base_points.crs.to_epsg() != 4326:
-        base_points = base_points.set_crs("EPSG:4326", allow_override=True)
+        # For each state folder inside this bin
+        state_dirs = [d for d in bin_dir.iterdir() if d.is_dir()]
+        if not state_dirs:
+            print(f"[WARN] No state folders under {bin_dir.name}")
+            continue
 
-    # nationwide min/max (shared by all outputs)
-    if META_FILE.exists():
-        meta = json.loads(META_FILE.read_text(encoding="utf-8"))
-        vmin = float(meta.get("min_total_kw", float(base_points["total_kw"].min())))
-        vmax = float(meta.get("max_total_kw", float(base_points["total_kw"].max())))
-    else:
-        vmin = float(base_points["total_kw"].min()) if len(base_points) else 0.0
-        vmax = float(base_points["total_kw"].max()) if len(base_points) else 1.0
-    if vmax <= vmin: vmax = vmin + 1.0
-
-    # 1) Nationwide pies
-    n1 = pies_from_points(base_points, vmin, vmax, OUT_FILE)
-    print(f"[OK] nationwide pies -> {OUT_FILE.name} (features={n1})")
-
-    # 2) Per-state pies (same vmin/vmax), write to BASE/<slug>/
-    valid = base_points[base_points.get("state_slug","") != ""].copy()
-    for slug, sub in valid.groupby("state_slug"):
-        out_state = BASE / slug / f"de_{slug}_landkreis_pie.geojson"
-        n2 = pies_from_points(sub, vmin, vmax, out_state)
-        print(f"[OK] state pies -> {slug}\\{out_state.name} (features={n2})")
+        for st_dir in state_dirs:
+            pts = list(st_dir.glob(f"de_{st_dir.name}_landkreis_pies_{bin_dir.name}.geojson"))
+            if not pts:
+                # try any matching file
+                pts = list(st_dir.glob("de_*_landkreis_pies_*.geojson"))
+            if not pts:
+                print(f"[WARN] No points in {st_dir}")
+                continue
+            in_points = pts[0]
+            out_geojson = st_dir / f"de_{st_dir.name}_landkreis_pie_{bin_dir.name}.geojson"
+            n = pies_from_points(gpd.read_file(in_points), vmin, vmax, out_geojson)
+            print(f"[OK] {bin_dir.name}/{st_dir.name} -> features={n}")
 
 if __name__ == "__main__":
     main()

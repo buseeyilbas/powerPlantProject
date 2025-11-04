@@ -8,7 +8,7 @@ import pandas as pd
 from shapely.geometry import Polygon
 
 # ---------------- Settings ----------------
-BASE = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts")
+BASE = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\state_pies")
 IN_FILE  = BASE / "de_state_pies.geojson"
 META_FILE = BASE / "state_pie_style_meta.json"
 OUT_FILE = BASE / "de_state_pie.geojson"

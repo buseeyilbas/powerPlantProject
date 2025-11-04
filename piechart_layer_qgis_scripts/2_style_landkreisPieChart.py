@@ -1,90 +1,123 @@
-# Auto-load + style single-layer Landkreis pies (QGIS 3.10-safe)
-# Added: toggle labels with SHOW_LABELS variable
+# Filename: 2_style_landkreisPieChart.py
+# Purpose : Load & style per-state Landkreis pie layers based ONLY on folder names
+#           (NO spatial clipping, NO intersects with GADM). QGIS 3.10-safe.
+#
+# Expected layout:
+#   BASE_DIR/
+#     <state-slug>/
+#       de_<state-slug>_landkreis_pie.geojson
+#       (fallback pattern: de_*_landkreis_pie*.geojson)
 
 from qgis.core import (
-    QgsProject, QgsVectorLayer, QgsCategorizedSymbolRenderer, QgsRendererCategory,
-    QgsFillSymbol, QgsVectorLayerSimpleLabeling, QgsPalLayerSettings,
-    QgsTextFormat, QgsTextBufferSettings, QgsProperty
+    QgsProject, QgsVectorLayer, QgsLayerTreeGroup,
+    QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsFillSymbol
 )
-from qgis.PyQt.QtGui import QColor, QFont
+from qgis.PyQt.QtGui import QColor
 from pathlib import Path
 
-SHOW_LABELS = False  # True or False
+# ---- SETTINGS ---------------------------------------------------------------
+GROUP_NAME = "landkreis_pies"  # main group in the Layer Panel
+
+BASE_DIR = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\nationwide_landkreis_pies"
+)
 
 PALETTE = {
-    "pv_kw": QColor(255,255,0,255),
+    "pv_kw":      QColor(255,255,0,255),
     "battery_kw": QColor(148,87,235,255),
-    "wind_kw": QColor(173,216,230,255),
-    "hydro_kw": QColor(0,0,255,255),
-    "biogas_kw": QColor(0,190,0,255),
-    "others_kw": QColor(158,158,158,255),
+    "wind_kw":    QColor(173,216,230,255),
+    "hydro_kw":   QColor(0,0,255,255),
+    "biogas_kw":  QColor(0,190,0,255),
+    "others_kw":  QColor(158,158,158,255),
 }
 
-BASE_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts")
-GEOJSON_PATH = BASE_DIR / "de_landkreis_pie.geojson"
+# Optional pretty names for slugs (fallback = slug itself)
+SLUG_TO_PRETTY = {
+    "baden-wuerttemberg": "Baden-Württemberg",
+    "bayern": "Bayern",
+    "berlin": "Berlin",
+    "brandenburg": "Brandenburg",
+    "bremen": "Bremen",
+    "hamburg": "Hamburg",
+    "hessen": "Hessen",
+    "mecklenburg-vorpommern": "Mecklenburg-Vorpommern",
+    "niedersachsen": "Niedersachsen",
+    "nordrhein-westfalen": "Nordrhein-Westfalen",
+    "rheinland-pfalz": "Rheinland-Pfalz",
+    "saarland": "Saarland",
+    "sachsen": "Sachsen",
+    "sachsen-anhalt": "Sachsen-Anhalt",
+    "schleswig-holstein": "Schleswig-Holstein",
+    "thueringen": "Thüringen",
+}
 
+# -----------------------------------------------------------------------------
 proj = QgsProject.instance()
+root = proj.layerTreeRoot()
 
-lyr = next((L for L in proj.mapLayers().values()
-            if L.name()=="de_landkreis_pie" or L.source().endswith("de_landkreis_pie.geojson")), None)
-if not lyr:
-    if not GEOJSON_PATH.exists():
-        raise Exception(f"GeoJSON not found: {GEOJSON_PATH}")
-    lyr = QgsVectorLayer(str(GEOJSON_PATH), "de_landkreis_pie", "ogr")
-    if not lyr.isValid():
-        raise Exception("Failed to load layer.")
-    proj.addMapLayer(lyr)
-    print(f"Loaded: {GEOJSON_PATH.name}")
+def ensure_group(parent, name: str):
+    grp = parent.findGroup(name)
+    if grp is None:
+        grp = parent.addGroup(name)
+    return grp
 
-# Style
-cats = []
-for key, color in PALETTE.items():
-    sym = QgsFillSymbol.createSimple({
-        "color": f"{color.red()},{color.green()},{color.blue()},255",
-        "outline_color": "50,50,50,150",
-        "outline_width": "0.2"
-    })
-    cats.append(QgsRendererCategory(key, sym, key))
-lyr.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))
+def style_energy_type(lyr: QgsVectorLayer):
+    cats = []
+    for key, color in PALETTE.items():
+        sym = QgsFillSymbol.createSimple({
+            "color": f"{color.red()},{color.green()},{color.blue()},255",
+            "outline_style": "no",
+            "outline_color": "0,0,0,0",
+            "outline_width": "0"
+        })
+        cats.append(QgsRendererCategory(key, sym, key))
+    lyr.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))
+    lyr.triggerRepaint()
 
-if SHOW_LABELS:
-    pal = QgsPalLayerSettings()
-    pal.enabled = True
-    pal.isExpression = True
-    pal.fieldName = 'CASE WHEN "label_anchor"=1 THEN "name" ELSE NULL END'
+def load_state_layer(state_dir: Path, group: QgsLayerTreeGroup):
+    """
+    Load the state's pie layer by file name convention INSIDE this directory.
+    Never clips by geometry; the directory decides the target state.
+    """
+    slug = state_dir.name
+    # Prefer exact canonical filename:
+    candidate = state_dir / f"de_{slug}_landkreis_pie.geojson"
+    if not candidate.exists():
+        # Fallback to any matching pattern in the folder
+        matches = sorted(state_dir.glob("de_*_landkreis_pie*.geojson"))
+        if not matches:
+            print(f"[SKIP] No pie geojson in: {state_dir}")
+            return
+        candidate = matches[0]
 
-    fmt = QgsTextFormat()
-    fmt.setFont(QFont("Arial", 8))
-    fmt.setSize(8)
-    fmt.setColor(QColor(25,25,25))
-    buf = QgsTextBufferSettings()
-    buf.setEnabled(True)
-    buf.setSize(0.8)
-    buf.setColor(QColor(255,255,255))
-    fmt.setBuffer(buf)
-    pal.setFormat(fmt)
+    vl = QgsVectorLayer(str(candidate), SLUG_TO_PRETTY.get(slug, slug), "ogr")
+    if not vl.isValid():
+        print(f"[WARN] Invalid layer: {candidate}")
+        return
 
-    size_expr = (
-        'CASE '
-        ' WHEN @map_scale <= 750000 THEN 9 '
-        ' WHEN @map_scale <= 1500000 THEN 8 '
-        ' WHEN @map_scale <= 3000000 THEN 7 '
-        ' ELSE 6 END'
-    )
-    ddp = pal.dataDefinedProperties()
-    ddp.setProperty(QgsPalLayerSettings.Size, QgsProperty.fromExpression(size_expr))
-    pal.setDataDefinedProperties(ddp)
+    proj.addMapLayer(vl, False)
+    group.addLayer(vl)
+    style_energy_type(vl)
+    print(f"[OK] Loaded: {slug} -> {candidate.name}")
 
-    try:
-        pal.placement = QgsPalLayerSettings.OverPolygon
-    except Exception:
-        pass
+def main():
+    if not BASE_DIR.exists():
+        raise Exception(f"[ERROR] BASE_DIR not found: {BASE_DIR}")
 
-    lyr.setLabelsEnabled(True)
-    lyr.setLabeling(QgsVectorLayerSimpleLabeling(pal))
-else:
-    lyr.setLabelsEnabled(False)
+    # Create/clean main group
+    g_main = ensure_group(root, GROUP_NAME)
+    for ch in list(g_main.children()):
+        g_main.removeChildNode(ch)
 
-lyr.triggerRepaint()
-iface.layerTreeView().refreshLayerSymbology(lyr.id())
-print(f"Styled Landkreis pies (labels {'ON' if SHOW_LABELS else 'OFF'}).")
+    # Iterate state folders ONLY (no top-level ALL)
+    state_dirs = [p for p in BASE_DIR.iterdir() if p.is_dir()]
+    if not state_dirs:
+        raise Exception(f"[ERROR] No state folders under: {BASE_DIR}")
+
+    # Load each state's pies from its own folder and attach directly under main group
+    for st_dir in sorted(state_dirs, key=lambda p: p.name):
+        load_state_layer(st_dir, g_main)
+
+    print("✅ Folder-based state assignment complete (no spatial clipping).")
+
+main()

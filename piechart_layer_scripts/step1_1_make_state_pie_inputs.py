@@ -10,7 +10,7 @@ from shapely.geometry import Point
 
 # -------- SETTINGS --------
 INPUT_DIR  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_three_checks"
-OUTPUT_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts"
+OUTPUT_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\state_pies"
 
 ENERGY_FIELD = "energy_source_label"   # preferred energy label field if present
 STATE_FIELD  = None                    # set if explicit (e.g., "BundeslandName")

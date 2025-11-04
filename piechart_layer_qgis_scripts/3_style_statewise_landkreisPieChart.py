@@ -16,7 +16,7 @@ import os
 # --- SETTINGS ---
 SHOW_LABELS = False  # 👈 change to True to show names
 ROOT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\statewise_landkreis_pies")
-GROUP_NAME = "statewise_landkreis_pies (auto)"
+GROUP_NAME = "statewise_landkreis_pies"
 # ----------------
 
 PALETTE = {
@@ -53,8 +53,9 @@ def style_one(lyr):
     for key, color in PALETTE.items():
         sym = QgsFillSymbol.createSimple({
             "color": f"{color.red()},{color.green()},{color.blue()},255",
-            "outline_color": "50,50,50,140",
-            "outline_width": "0.2"
+            "outline_style": "no",
+            "outline_color": "0,0,0,0",
+            "outline_width": "0"
         })
         cats.append(QgsRendererCategory(key, sym, key))
     lyr.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))

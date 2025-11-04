@@ -20,7 +20,7 @@ PALETTE = {
     "others_kw": QColor(158,158,158,255),
 }
 
-BASE_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts")
+BASE_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\state_pies")
 GEOJSON_PATH = BASE_DIR / "de_state_pie.geojson"
 
 proj = QgsProject.instance()
@@ -41,9 +41,10 @@ if not lyr:
 cats = []
 for key, color in PALETTE.items():
     sym = QgsFillSymbol.createSimple({
-        "color": f"{color.red()},{color.green()},{color.blue()},255",
-        "outline_color": "50,50,50,150",
-        "outline_width": "0.2"
+    "color": f"{color.red()},{color.green()},{color.blue()},255",
+    "outline_style": "no",
+    "outline_color": "0,0,0,0",
+    "outline_width": "0"
     })
     cats.append(QgsRendererCategory(key, sym, key))
 lyr.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))
