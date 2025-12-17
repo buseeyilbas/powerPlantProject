@@ -1,46 +1,62 @@
-"""
-Make pie POLYGONS from the step3_1 points with nationwide sizing,
-and write both nationwide + per-state pie layers under the same 'nationwide_landkreis_pies' root.
-
-Inputs:
-  BASE/de_landkreis_pies.geojson
-  BASE/landkreis_pie_style_meta.json
-Outputs:
-  BASE/de_landkreis_pie.geojson
-  BASE/<state-slug>/de_<state-slug>_landkreis_pie.geojson
-"""
+# Filename: step3_2_make_landkreis_pie_geometries.py
+# Purpose:
+#   Convert NATIONWIDE-scaled Landkreis pie INPUT POINTS (from step3_1)
+#   into actual pie-slice polygons PER STATE,
+#   using the SAME logic as step2_2.
+#
+# Key difference to step2_2:
+#   - radius scaling (vmin/vmax) is computed NATIONWIDE
+#   - geometry generation is still PER STATE (no single nationwide file)
 
 from pathlib import Path
 import math, json
+
 import geopandas as gpd
 from shapely.geometry import Polygon
 from pyproj import Transformer
 
-# -------- PATHS --------
-BASE       = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\nationwide_landkreis_pies")
-IN_FILE    = BASE / "de_landkreis_pies.geojson"
-META_FILE  = BASE / "landkreis_pie_style_meta.json"
-OUT_FILE   = BASE / "de_landkreis_pie.geojson"
+# ---------------- PATHS ----------------
 
-# ---- Radius scaling (meters), uses nationwide vmin/vmax ----
+BASE_DIR = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\nationwide_landkreis_pies"
+)
+
+IN_FILE = BASE_DIR / "de_landkreis_pies.geojson"
+META_FILE = BASE_DIR / "landkreis_pie_style_meta.json"
+
+OUT_DIR = BASE_DIR
+
+# ---------------- SIZING ----------------
+
 R_MIN_M = 10000.0
 R_MAX_M = 50000.0
 
-# ---- Overlap handling ----
-GAP_M          = 2000.0
+# ---------------- OVERLAP AVOIDANCE ----------------
+
+GAP_M = 2000.0
 MAX_NUDGE_ITER = 120
 
-# ---- Energy fields order ----
-PARTS = ["pv_kw", "wind_kw", "hydro_kw", "battery_kw", "biogas_kw", "others_kw"]
+# ---------------- ENERGY PARTS ----------------
 
-PALETTE_RGB = {
-    "pv_kw":      (255,212,  0),
-    "battery_kw": (126, 87,194),
-    "wind_kw":    (173,216,230),
-    "hydro_kw":   ( 30, 58,138),
-    "biogas_kw":  ( 46,125, 50),
-    "others_kw":  (158,158,158),
+PART_FIELDS = [
+    "pv_kw",
+    "wind_kw",
+    "hydro_kw",
+    "battery_kw",
+    "biogas_kw",
+    "others_kw",
+]
+
+COLORS = {
+    "pv_kw":      (255, 212,   0),
+    "battery_kw": (126,  87, 194),
+    "wind_kw":    (173, 216, 230),
+    "hydro_kw":   ( 30,  58, 138),
+    "biogas_kw":  ( 46, 125,  50),
+    "others_kw":  (158, 158, 158),
 }
+
+# ---------------- HELPERS ----------------
 
 def scale_linear(val, vmin, vmax, omin, omax):
     if vmax <= vmin:
@@ -49,127 +65,145 @@ def scale_linear(val, vmin, vmax, omin, omax):
     t = 0.0 if t < 0 else (1.0 if t > 1 else t)
     return omin + t * (omax - omin)
 
-def ring_pts(cxy, r, th1, th2, n=48):
-    cx, cy = cxy
+
+def ring_pts(center, r, th1, th2, n=48):
+    cx, cy = center
     out = []
-    for i in range(n+1):
+    for i in range(n + 1):
         th = th1 + (th2 - th1) * (i / n)
-        out.append((cx + r*math.cos(th), cy + r*math.sin(th)))
+        out.append((cx + r * math.cos(th), cy + r * math.sin(th)))
     return out
 
-def make_pie(center_m, radius_m, ordered_pairs):
-    total = sum(v for _, v in ordered_pairs if v and v > 0)
+
+def make_pie(center_m, radius_m, parts):
+    total = sum(v for _, v in parts if v and v > 0)
     if total <= 0:
         return [], None
-    slices, shares = [], []
+
+    slices = []
+    shares = []
     ang = 0.0
-    for k, v in ordered_pairs:
-        share = (v/total) if v and v > 0 else 0.0
-        dth = share * 2*math.pi
+
+    for k, v in parts:
+        share = (v / total) if v and v > 0 else 0.0
+        dth = share * 2 * math.pi
         t1, t2 = ang, ang + dth
         ang = t2
+
         if share > 0:
             arc = ring_pts(center_m, radius_m, t1, t2)
             poly = Polygon([center_m] + arc + [center_m])
             slices.append((k, share, poly))
+
         shares.append((k, share))
+
     anchor_key = max(shares, key=lambda kv: kv[1])[0] if shares else None
     return slices, anchor_key
+
 
 def repulse_centers(centers):
     for _ in range(MAX_NUDGE_ITER):
         moved = False
         for i in range(len(centers)):
-            for j in range(i+1, len(centers)):
+            for j in range(i + 1, len(centers)):
                 pi, pj = centers[i], centers[j]
-                dx = pj['x'] - pi['x']; dy = pj['y'] - pi['y']
-                d  = math.hypot(dx, dy)
-                need = pi['r'] + pj['r'] + GAP_M
+                dx = pj["x"] - pi["x"]
+                dy = pj["y"] - pi["y"]
+                d = math.hypot(dx, dy)
+                need = pi["r"] + pj["r"] + GAP_M
+
                 if d == 0.0:
-                    ang = (i+1) * 2*math.pi / (len(centers)+1)
-                    dx, dy, d = math.cos(ang), math.sin(ang), 1.0
+                    ang = (i + 1) * 2 * math.pi / (len(centers) + 1)
+                    dx, dy = math.cos(ang), math.sin(ang)
+                    d = 1.0
+
                 if d < need:
                     push = (need - d) / 2.0
-                    ux, uy = dx/d, dy/d
-                    pi['x'] -= ux * push; pi['y'] -= uy * push
-                    pj['x'] += ux * push; pj['y'] += uy * push
+                    ux, uy = dx / d, dy / d
+                    pi["x"] -= ux * push
+                    pi["y"] -= uy * push
+                    pj["x"] += ux * push
+                    pj["y"] += uy * push
                     moved = True
         if not moved:
             break
 
-def pies_from_points(gdf_points, vmin, vmax, out_path: Path):
-    if gdf_points.empty:
-        return 0
-    if gdf_points.crs is None or gdf_points.crs.to_epsg() != 4326:
-        gdf_points = gdf_points.set_crs("EPSG:4326", allow_override=True)
 
+def process_one_state(g_state, vmin, vmax, state_slug):
     to_m   = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     to_deg = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
 
-    centers, rows = [], []
-    for _, r in gdf_points.iterrows():
+    centers = []
+    rows = []
+
+    for _, r in g_state.iterrows():
         cx, cy = float(r.geometry.x), float(r.geometry.y)
         cxm, cym = to_m.transform(cx, cy)
         total = float(r.get("total_kw", 0.0))
-        rad   = scale_linear(total, vmin, vmax, R_MIN_M, R_MAX_M)
-        centers.append({'x': cxm, 'y': cym, 'r': rad})
+        rad = scale_linear(total, vmin, vmax, R_MIN_M, R_MAX_M)
+        centers.append({"x": cxm, "y": cym, "r": rad})
         rows.append(r)
 
     repulse_centers(centers)
 
     out_rows = []
     for r, c in zip(rows, centers):
-        parts = [(k, float(r.get(k, 0.0)) or 0.0) for k in PARTS]
-        slices_m, anchor_key = make_pie((c['x'], c['y']), c['r'], parts)
-        for k, share, poly_m in slices_m:
-            poly_deg = Polygon([to_deg.transform(x, y) for (x, y) in poly_m.exterior.coords])
-            R, G, B = PALETTE_RGB[k]
-            out_rows.append({
-                "state_slug":   r.get("state_slug"),
-                "name":         r.get("name", r.get("kreis_name", r.get("landkreis", ""))),
-                "energy_type":  k,
-                "power_kw":     float(dict(parts).get(k, 0.0)),
-                "share":        float(share),
-                "total_kw":     float(r.get("total_kw", 0.0)),
-                "radius_m":     float(c['r']),
-                "label_anchor": 1 if (anchor_key == k) else 0,
-                "color_r": R, "color_g": G, "color_b": B,
-                "geometry":     poly_deg
-            })
+        parts = [(f, float(r.get(f, 0.0))) for f in PART_FIELDS]
+        slices_m, anchor_key = make_pie((c["x"], c["y"]), c["r"], parts)
 
-    out_gdf = gpd.GeoDataFrame(out_rows, geometry="geometry", crs="EPSG:4326")
+        for k, share, poly_m in slices_m:
+            poly_deg = Polygon(
+                [to_deg.transform(x, y) for (x, y) in poly_m.exterior.coords]
+            )
+            R, G, B = COLORS[k]
+            out_rows.append(
+                {
+                    "state_slug": state_slug,
+                    "name": r.get("kreis_name"),
+                    "energy_type": k,
+                    "power_kw": float(dict(parts).get(k, 0.0)),
+                    "share": float(share),
+                    "total_kw": float(r.get("total_kw", 0.0)),
+                    "radius_m": float(c["r"]),
+                    "label_anchor": 1 if anchor_key == k else 0,
+                    "color_r": R,
+                    "color_g": G,
+                    "color_b": B,
+                    "geometry": poly_deg,
+                }
+            )
+
+    out = gpd.GeoDataFrame(out_rows, geometry="geometry", crs="EPSG:4326")
+    out_path = OUT_DIR / state_slug / f"de_{state_slug}_landkreis_pie.geojson"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_gdf.to_file(out_path, driver="GeoJSON")
-    return len(out_gdf)
+    out.to_file(out_path, driver="GeoJSON")
+    print(f"[OK] wrote {out_path}")
+
+
+# ---------------- MAIN ----------------
 
 def main():
     if not IN_FILE.exists():
         raise FileNotFoundError(f"Missing input: {IN_FILE}")
 
-    base_points = gpd.read_file(IN_FILE)
-    if base_points.crs is None or base_points.crs.to_epsg() != 4326:
-        base_points = base_points.set_crs("EPSG:4326", allow_override=True)
+    gdf = gpd.read_file(IN_FILE)
 
-    # nationwide min/max (shared by all outputs)
+    # --- nationwide scaling ---
     if META_FILE.exists():
         meta = json.loads(META_FILE.read_text(encoding="utf-8"))
-        vmin = float(meta.get("min_total_kw", float(base_points["total_kw"].min())))
-        vmax = float(meta.get("max_total_kw", float(base_points["total_kw"].max())))
+        vmin = float(meta.get("min_total_kw", gdf["total_kw"].min()))
+        vmax = float(meta.get("max_total_kw", gdf["total_kw"].max()))
     else:
-        vmin = float(base_points["total_kw"].min()) if len(base_points) else 0.0
-        vmax = float(base_points["total_kw"].max()) if len(base_points) else 1.0
-    if vmax <= vmin: vmax = vmin + 1.0
+        vmin = float(gdf["total_kw"].min())
+        vmax = float(gdf["total_kw"].max())
 
-    # 1) Nationwide pies
-    n1 = pies_from_points(base_points, vmin, vmax, OUT_FILE)
-    print(f"[OK] nationwide pies -> {OUT_FILE.name} (features={n1})")
+    if vmax <= vmin:
+        vmax = vmin + 1.0
 
-    # 2) Per-state pies (same vmin/vmax), write to BASE/<slug>/
-    valid = base_points[base_points.get("state_slug","") != ""].copy()
-    for slug, sub in valid.groupby("state_slug"):
-        out_state = BASE / slug / f"de_{slug}_landkreis_pie.geojson"
-        n2 = pies_from_points(sub, vmin, vmax, out_state)
-        print(f"[OK] state pies -> {slug}\\{out_state.name} (features={n2})")
+    # --- process per state (2_2 style) ---
+    for slug, sub in gdf[gdf["state_slug"] != ""].groupby("state_slug"):
+        process_one_state(sub, vmin, vmax, slug)
+
 
 if __name__ == "__main__":
     main()

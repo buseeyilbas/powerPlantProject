@@ -1,28 +1,32 @@
-
 """
-step21_filter_json_by_state_3checks_yearly.py
+step26_filter_json_by_landkreis_yearly.py
 
-Like step20, but split outputs by commissioning year (DATE_FIELD).
-Output structure (keeps original filenames):
-  <OUTPUT_ROOT>/<PrettyState>/<YYYY>/<original_filename>.json
+BIREBIR step24_filter_json_by_state_landkreis_yearly ile ayni mantik.
+TEK FARK:
+- State klasoru YOK
+- Nationwide LANDKREIS bazli filtreleme
 
-Entries are saved ONLY if polygon state == Bundesland (code) == Gemeinde prefix (2-digit).
+Output structure:
+  <OUTPUT_ROOT>/<Landkreis NAME_2>/<YYYY>/<original_filename>.json
 """
 
 import os
+import re
 import json
 from collections import defaultdict
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, List, Tuple, Optional
 from shapely.geometry import shape, MultiPolygon, Polygon, Point
+from shapely.prepared import prep
 
 # ========== CONFIG ==========
 INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"
-OUTPUT_ROOT  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\filtered_json_by_state_yearly_3checks"
-POLYGON_STATES_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\polygon_states.json"  # features[].properties.name
-DATE_FIELD = "Inbetriebnahmedatum"
-LON_FIELD = "Laengengrad"
-LAT_FIELD = "Breitengrad"
-# ============================
+OUTPUT_ROOT  = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\filtered_json_by_landkreis_yearly"
+GADM_L2_PATH = r"C:\Users\jo73vure\Desktop\powerPlantProject\gadm_data\gadm41_DEU\gadm41_DEU_2.json"
+
+DATE_FIELD   = "Inbetriebnahmedatum"
+LON_FIELD    = "Laengengrad"
+LAT_FIELD    = "Breitengrad"
+# ===========================
 
 BUNDESLAND_CODE_TO_NAME: Dict[str, str] = {
     "1400": "brandenburg",
@@ -42,6 +46,7 @@ BUNDESLAND_CODE_TO_NAME: Dict[str, str] = {
     "1414": "sachsen_anhalt",
     "1415": "thueringen",
 }
+
 GS_PREFIX_TO_NAME: Dict[str, str] = {
     "01": "schleswig_holstein",
     "02": "hamburg",
@@ -61,11 +66,25 @@ GS_PREFIX_TO_NAME: Dict[str, str] = {
     "16": "thueringen",
 }
 
-def normalize_state_name(name: str) -> str:
+# ---------- helpers ----------
+
+def safe_filename(name: str) -> str:
+    name = (name or "").strip().lower()
+    name = name.replace("/", "_").replace("\\", "_")
+    name = re.sub(r"[^0-9a-zäöüß \-_.]", "_", name)
+    name = re.sub(r"_+", "_", name)
+    return name or "unknown"
+
+def normalize_state_name_token(name: str) -> str:
     if not isinstance(name, str):
         return ""
     s = name.lower()
-    s = (s.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss"))
+    s = (
+        s.replace("ä", "ae")
+         .replace("ö", "oe")
+         .replace("ü", "ue")
+         .replace("ß", "ss")
+    )
     for ch in [" ", "_", "-", "(", ")", "[", "]", "{", "}", ".", ",", "'", '"', "/"]:
         s = s.replace(ch, "")
     return s
@@ -94,80 +113,61 @@ def extract_year(entry: dict, field: str = DATE_FIELD) -> str:
     y = val[:4]
     return y if y.isdigit() and len(y) == 4 else "unknown"
 
-def load_state_polygons(geojson_path: str):
+def load_gadm_l2(geojson_path: str) -> List[Tuple[str, str, MultiPolygon]]:
     data = load_json(geojson_path)
     feats = data["features"] if isinstance(data, dict) and "features" in data else data
-
-    polygons_by_norm: Dict[str, MultiPolygon] = {}
-    pretty_by_norm: Dict[str, str] = {}
-
+    out = []
     for feat in feats:
         props = feat.get("properties", {}) or {}
-        name = props.get("name")
-        if not name:
+        name_1 = props.get("NAME_1")
+        name_2 = props.get("NAME_2")
+        if not name_1 or not name_2:
             continue
         geom = shape(feat.get("geometry"))
         if isinstance(geom, Polygon):
             geom = MultiPolygon([geom])
         if not isinstance(geom, MultiPolygon):
             continue
-        key = normalize_state_name(name)
-        polygons_by_norm[key] = geom
-        pretty_by_norm[key] = name
-    return polygons_by_norm, pretty_by_norm
+        out.append((name_1, name_2, geom))
+    return out
 
-def polygon_state_of_point(pt: Point, polygons_by_norm: Dict[str, MultiPolygon]) -> Optional[str]:
-    for norm, mp in polygons_by_norm.items():
-        if mp.covers(pt):
-            return norm
-    return None
+# ---------- MAIN ----------
 
-def bl_code_to_norm_name(code: str) -> Optional[str]:
-    if code is None: return None
-    name = BUNDESLAND_CODE_TO_NAME.get(str(code).strip())
-    return normalize_state_name(name) if name else None
-
-def gs_prefix_to_norm_name(gs: str) -> Optional[str]:
-    if gs is None: return None
-    s = str(gs)
-    if len(s) < 2:
-        return None
-    name = GS_PREFIX_TO_NAME.get(s[:2])
-    return normalize_state_name(name) if name else None
-
-def filter_json_by_state_year_three_checks(
+def filter_json_by_landkreis_yearly(
     input_folder: str,
     output_root: str,
-    polygon_states_path: str,
+    gadm_l2_path: str,
     date_field: str = DATE_FIELD
 ):
     os.makedirs(output_root, exist_ok=True)
 
-    polygons_by_norm, pretty_by_norm = load_state_polygons(polygon_states_path)
-    if not polygons_by_norm:
-        raise RuntimeError("No state polygons loaded.")
+    l2 = load_gadm_l2(gadm_l2_path)
+    if not l2:
+        raise RuntimeError("No L2 polygons loaded.")
+    prepared = [(name_1, name_2, prep(geom)) for (name_1, name_2, geom) in l2]
 
-    # Stats
     total_files = 0
     total_entries = 0
     kept_entries = 0
-    dropped_no_poly = 0
+    dropped_mismatch = 0
+    dropped_no_match = 0
     dropped_missing_bl = 0
     dropped_missing_gs = 0
-    dropped_mismatch = 0
 
     for fname in os.listdir(input_folder):
         if not fname.endswith(".json"):
             continue
+
         total_files += 1
         fpath = os.path.join(input_folder, fname)
+
         try:
             data = load_json(fpath)
         except Exception as e:
             print(f"⚠️ Could not load {fname}: {e}")
             continue
 
-        # Buckets for this source file
+        # {landkreis: {year: [entries]}}
         buckets: Dict[str, Dict[str, List[dict]]] = defaultdict(lambda: defaultdict(list))
 
         for entry in data:
@@ -176,54 +176,66 @@ def filter_json_by_state_year_three_checks(
             if pt is None:
                 continue
 
-            poly_state_norm = polygon_state_of_point(pt, polygons_by_norm)
-            if not poly_state_norm:
-                dropped_no_poly += 1
+            matched_state = None
+            matched_lk = None
+            for name_1, name_2, pgeom in prepared:
+                if pgeom.context.covers(pt) if hasattr(pgeom, "context") and hasattr(pgeom.context, "covers") else pgeom.contains(pt):
+                    matched_state = name_1
+                    matched_lk = name_2
+                    break
+
+            if not matched_lk:
+                dropped_no_match += 1
                 continue
 
-            bl_norm = bl_code_to_norm_name(entry.get("Bundesland"))
-            if bl_norm is None:
+            bl_norm = normalize_state_name_token(
+                BUNDESLAND_CODE_TO_NAME.get(str(entry.get("Bundesland", "")).strip(), "")
+            )
+            if not bl_norm:
                 dropped_missing_bl += 1
                 continue
 
-            gs_norm = gs_prefix_to_norm_name(entry.get("Gemeindeschluessel"))
-            if gs_norm is None:
+            gs_norm = normalize_state_name_token(
+                GS_PREFIX_TO_NAME.get(str(entry.get("Gemeindeschluessel", ""))[:2], "")
+            )
+            if not gs_norm:
                 dropped_missing_gs += 1
                 continue
 
-            if poly_state_norm == bl_norm == gs_norm:
+            if normalize_state_name_token(matched_state) == bl_norm == gs_norm:
                 year = extract_year(entry, date_field)
-                buckets[poly_state_norm][year].append(entry)
+                buckets[matched_lk][year].append(entry)
                 kept_entries += 1
             else:
                 dropped_mismatch += 1
 
-        # Write outputs grouped by state/year
-        for state_norm, years_map in buckets.items():
-            pretty_state = pretty_by_norm.get(state_norm, state_norm)
+        # write
+        for lkr_name, years_map in buckets.items():
             for year, entries in years_map.items():
-                out_folder = os.path.join(output_root, pretty_state, year)
+                out_folder = os.path.join(output_root, safe_filename(lkr_name), year)
                 os.makedirs(out_folder, exist_ok=True)
                 out_path = os.path.join(out_folder, fname)
                 save_json(entries, out_path)
-                print(f"✔ Saved {len(entries):>5} entries → {pretty_state}/{year}/{fname}")
+                print(f"✔ Saved {len(entries):>5} entries → {safe_filename(lkr_name)}/{year}/{fname}")
 
     summary = {
         "files_processed": total_files,
         "entries_seen": total_entries,
         "kept_entries": kept_entries,
-        "dropped_no_polygon_match": dropped_no_poly,
+        "dropped_no_polygon_match": dropped_no_match,
         "dropped_missing_bundesland": dropped_missing_bl,
         "dropped_missing_gemeindeschluessel": dropped_missing_gs,
-        "dropped_triple_mismatch": dropped_mismatch,
+        "dropped_state_triple_mismatch": dropped_mismatch,
         "output_root": output_root,
         "date_field": date_field,
     }
+
     with open(os.path.join(output_root, "_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
+
     print("\n====== SUMMARY ======")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
-    filter_json_by_state_year_three_checks(INPUT_FOLDER, OUTPUT_ROOT, POLYGON_STATES_PATH, DATE_FIELD)
+    filter_json_by_landkreis_yearly(INPUT_FOLDER, OUTPUT_ROOT, GADM_L2_PATH, DATE_FIELD)

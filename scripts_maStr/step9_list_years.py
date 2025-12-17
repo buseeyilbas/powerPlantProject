@@ -6,7 +6,7 @@ from collections import Counter
 
 def extract_year(date_str: str) -> str:
     if isinstance(date_str, str) and len(date_str) >= 4:
-        return date_str[:4]  # "2009-04-30" → "2009"
+        return date_str[:4] 
     return None
 
 def list_installation_years(folder_path: str, key: str = "Inbetriebnahmedatum") -> None:

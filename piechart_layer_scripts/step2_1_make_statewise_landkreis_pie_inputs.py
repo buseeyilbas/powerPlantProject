@@ -1,15 +1,40 @@
-# Build county (Landkreis) totals per state from by_state_landkreis/*/*.geojson
-# DEDUPE: one pie per Landkreis. Key is derived from filename BASE (energy tag stripped),
-# with AGS5 appended if available. This prevents "multiple pies per Landkreis" explosions.
+# Filename: step2_1_make_statewise_landkreis_pie_inputs.py
+# Purpose :
+#   Build non-yearly LANDKREIS pie INPUT POINTS per state,
+#   using the SINGLE AGS-based center set from step2_0.
+#
+#   Input:
+#       - by_state_landkreis/*/*.geojson
+#       - pieCharts/landkreis_centers/de_landkreis_centers.geojson
+#
+#   Output:
+#       - pieCharts/statewise_landkreis_pies/de_<state_slug>_landkreis_pies.geojson
+#       - pieCharts/statewise_landkreis_pies/<state_slug>_landkreis_pie_style_meta.json
 
 from pathlib import Path
-import os, re, unicodedata, json, collections
+import os
+import re
+import unicodedata
+import json
+import collections
+
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 
-INPUT_ROOT = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_landkreis")
-OUTPUT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\statewise_landkreis_pies")
+# ------------------------------ PATHS ------------------------------
+
+INPUT_ROOT = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_landkreis"
+)
+
+OUTPUT_DIR = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\statewise_landkreis_pies"
+)
+
+CENTERS_PATH = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\landkreis_centers\de_landkreis_centers.geojson"
+)
 
 ENERGY_CODE_TO_LABEL = {
     "2403": "Tiefe Geothermie",
@@ -21,6 +46,7 @@ ENERGY_CODE_TO_LABEL = {
     "2497": "Windenergie Onshore",
     "2498": "Wasserkraft",
 }
+
 PRIORITY_FIELDNAMES = {
     "Photovoltaik": "pv_kw",
     "Windenergie Onshore": "wind_kw",
@@ -30,81 +56,104 @@ PRIORITY_FIELDNAMES = {
 }
 OTHERS_FIELD = "others_kw"
 
-STATE_SLUG_TO_OFFICIAL = {
-    "baden-wuerttemberg": "Baden-Württemberg", "baden-württemberg": "Baden-Württemberg",
-    "bayern": "Bayern", "berlin": "Berlin", "brandenburg": "Brandenburg", "bremen": "Bremen",
-    "hamburg": "Hamburg", "hessen": "Hessen", "mecklenburg-vorpommern": "Mecklenburg-Vorpommern",
-    "niedersachsen": "Niedersachsen", "nordrhein-westfalen": "Nordrhein-Westfalen",
-    "rheinland-pfalz": "Rheinland-Pfalz", "saarland": "Saarland",
-    "sachsen": "Sachsen", "sachsen-anhalt": "Sachsen-Anhalt",
-    "schleswig-holstein": "Schleswig-Holstein",
-    "thueringen": "Thüringen", "thüringen": "Thüringen", "thuringen": "Thüringen",
-}
+NAME_FIELDS = (
+    "Landkreis",
+    "landkreis",
+    "Kreis",
+    "kreis",
+    "kreis_name",
+    "Landkreisname",
+    "landkreisname",
+    "GEN",
+)
 
-NAME_FIELDS = ("Landkreis","landkreis","Kreis","kreis","kreis_name","Landkreisname","landkreisname")
 
-ENERGY_TOKENS = {
-    "pv","photovoltaik","solar","wind","wasser","hydro","biogas","stromspeicher","speicher","battery","others"
-}
+# ------------------------------ HELPERS ------------------------------
 
-def normalize_text(s: str) -> str:
-    if s is None: return ""
+
+def norm(s: str) -> str:
+    if s is None:
+        return ""
     s = unicodedata.normalize("NFKD", str(s))
     s = "".join(ch for ch in s if not unicodedata.combining(ch)).lower()
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
-def kreis_base_from_stem(stem: str) -> str:
-    """Strip energy tokens and numeric tails from file stem to get a stable Landkreis base."""
-    s = normalize_text(stem)
-    parts = [p for p in s.split("-") if p and p not in ENERGY_TOKENS and not p.isdigit()]
-    # drop common "einheiten/anlagen" noise
-    parts = [p for p in parts if p not in {"einheiten","anlagen","eeg","kwk"}]
-    return "-".join(parts) or s
 
 def clean_kreis_label(name: str) -> str:
-    if not name: return ""
+    if not name:
+        return ""
     s = str(name).strip()
     low = s.lower()
-    for rep in ["kreisfreie stadt","landkreis","stadtkreis","kreis"]:
+    for rep in ["kreisfreie stadt", "landkreis", "stadtkreis", "kreis"]:
         low = low.replace(rep, " ")
     low = re.sub(r"-?kreis\b", " ", low)
     low = re.sub(r"\s+", " ", low).strip()
     return " ".join(w.capitalize() for w in low.split())
 
+
 def extract_ags5(row: pd.Series):
-    for cand in ("Gemeindeschluessel","gemeindeschluessel","AGS","ags","ags_id","kreisschluessel","rs"):
+    for cand in (
+        "Gemeindeschluessel",
+        "gemeindeschluessel",
+        "AGS",
+        "ags",
+        "ags_id",
+        "kreisschluessel",
+        "rs",
+    ):
         if cand in row and pd.notna(row[cand]):
             digits = re.sub(r"[^0-9]", "", str(row[cand]))
             if len(digits) >= 5:
                 return digits[:5]
     return None
 
+
 def parse_number(val):
-    if val is None: return None
-    if isinstance(val, (int, float)): return float(val)
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
     s = str(val).strip().replace(" ", "")
-    if "," in s and "." in s: s = s.replace(".", "").replace(",", ".")
-    else: s = s.replace(",", ".")
-    try: return float(s)
-    except Exception: return None
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return None
+
 
 def normalize_energy(val, filename_hint="") -> str:
     if val is not None:
         s = str(val).strip()
-        if s in ENERGY_CODE_TO_LABEL: return ENERGY_CODE_TO_LABEL[s]
-        sn = normalize_text(s)
-        if "solar" in sn or "photovoltaik" in sn or sn == "pv": return "Photovoltaik"
-        if "wind" in sn: return "Windenergie Onshore"
-        if "wasser" in sn or "hydro" in sn: return "Wasserkraft"
-        if "stromspeicher" in sn or "speicher" in sn or "battery" in sn: return "Stromspeicher (Battery Storage)"
-        if "biogas" in sn or sn == "gas": return "Biogas"
-    fn = normalize_text(filename_hint)
-    if "solar" in fn or "photovoltaik" in fn or "pv" in fn: return "Photovoltaik"
-    if "wind" in fn: return "Windenergie Onshore"
-    if "wasser" in fn or "hydro" in fn: return "Wasserkraft"
-    if "stromspeicher" in fn or "speicher" in fn or "battery" in fn: return "Stromspeicher (Battery Storage)"
-    if "biogas" in fn: return "Biogas"
+        if s in ENERGY_CODE_TO_LABEL:
+            return ENERGY_CODE_TO_LABEL[s]
+        sn = norm(s)
+        if "solar" in sn or "photovoltaik" in sn or sn == "pv":
+            return "Photovoltaik"
+        if "wind" in sn:
+            return "Windenergie Onshore"
+        if "wasser" in sn or "hydro" in sn:
+            return "Wasserkraft"
+        if "stromspeicher" in sn or "speicher" in sn or "battery" in sn:
+            return "Stromspeicher (Battery Storage)"
+        if "biogas" in sn or sn == "gas":
+            return "Biogas"
+
+    fn = norm(filename_hint)
+    if "solar" in fn or "photovoltaik" in fn or "pv" in fn:
+        return "Photovoltaik"
+    if "wind" in fn:
+        return "Windenergie Onshore"
+    if "wasser" in fn or "hydro" in fn:
+        return "Wasserkraft"
+    if "stromspeicher" in fn or "speicher" in fn or "battery" in fn:
+        return "Stromspeicher (Battery Storage)"
+    if "biogas" in fn:
+        return "Biogas"
     return "Unknown"
+
 
 def scan_geojsons(folder: Path):
     for root, _, files in os.walk(folder):
@@ -112,145 +161,232 @@ def scan_geojsons(folder: Path):
             if fn.lower().endswith(".geojson"):
                 yield Path(root) / fn
 
+
 def first_power_column(cols):
-    prefs = ["power_kw","Nettonennleistung","Bruttoleistung","Nennleistung","Leistung",
-             "installed_power_kw","kw","power"]
+    prefs = [
+        "power_kw",
+        "Nettonennleistung",
+        "Bruttoleistung",
+        "Nennleistung",
+        "Leistung",
+        "installed_power_kw",
+        "kw",
+        "power",
+    ]
     for c in prefs:
-        if c in cols: return c
-    lc = {normalize_text(c): c for c in cols}
-    for key in ["nettonennleistung","bruttoleistung","nennleistung","leistung","power","kw"]:
+        if c in cols:
+            return c
+    lc = {norm(c): c for c in cols}
+    for key in [
+        "nettonennleistung",
+        "bruttoleistung",
+        "nennleistung",
+        "leistung",
+        "power",
+        "kw",
+    ]:
         for k, orig in lc.items():
-            if key in k: return orig
+            if key in k:
+                return orig
     return None
+
 
 def choose_label(labels):
     labels = [l for l in labels if l]
-    if not labels: return ""
+    if not labels:
+        return ""
     cnt = collections.Counter(labels)
     top_n = cnt.most_common(1)[0][1]
     cands = [l for l, n in cnt.items() if n == top_n]
     return max(cands, key=len)
 
-def process_state(state_dir: Path):
-    slug = normalize_text(state_dir.name)
-    state_name = STATE_SLUG_TO_OFFICIAL.get(slug, state_dir.name)
 
-    paths = list(scan_geojsons(state_dir))
-    if not paths:
-        print(f"[WARN] no .geojson under: {state_dir}")
-        return
+# ------------------------------ LOAD CENTERS ------------------------------
 
-    frames = []
-    for p in paths:
-        try:
-            g = gpd.read_file(p)
-            if g.empty or "geometry" not in g.columns: continue
-            g = g[~g.geometry.is_empty & g.geometry.notnull()].copy()
-            g = g[g.geometry.geom_type.isin(["Point","MultiPoint"])]
-            if g.empty: continue
+
+def load_centers():
+    if not CENTERS_PATH.exists():
+        raise RuntimeError(f"Centers file not found: {CENTERS_PATH}")
+
+    g = gpd.read_file(CENTERS_PATH)
+    if g.crs is None:
+        g = g.set_crs("EPSG:4326", allow_override=True)
+
+    centers_by_ags = {}
+    state_by_ags = {}
+    name_by_ags = {}
+
+    for _, r in g.iterrows():
+        ags = str(r.get("ags5", "")).strip()
+        if not ags:
+            continue
+        centers_by_ags[ags] = (float(r.geometry.x), float(r.geometry.y))
+        state_by_ags[ags] = str(r.get("state_slug", "")).strip()
+        name_by_ags[ags] = str(r.get("kreis_name", ags)).strip()
+
+    print(
+        f"[CENTERS] Loaded {len(centers_by_ags)} Landkreis centers from {CENTERS_PATH}"
+    )
+    return centers_by_ags, state_by_ags, name_by_ags
+
+
+# ------------------------------ PROCESS STATELESS (AGS-BASED) ------------------------------
+
+
+def main():
+    print("\n[step2_1] Building statewise Landkreis pie INPUTS (non-yearly).")
+
+    if not INPUT_ROOT.exists():
+        raise RuntimeError(f"INPUT_ROOT not found: {INPUT_ROOT}")
+
+    centers_by_ags, state_by_ags, name_by_ags = load_centers()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+
+    # We process all state dirs, but the real "state_slug" comes from centers_by_ags.
+    for state_dir in sorted(INPUT_ROOT.iterdir()):
+        if not state_dir.is_dir():
+            continue
+
+        print(f"\n-- SCAN STATE DIR: {state_dir.name} --")
+        for p in scan_geojsons(state_dir):
+            try:
+                g = gpd.read_file(p)
+            except Exception as e:
+                print(f"  [WARN] skipped {p.name}: {e}")
+                continue
+
+            if g.empty or "geometry" not in g.columns:
+                continue
+
+            g = g[g.geometry.notnull()].copy()
+            g = g[g.geometry.geom_type.isin(["Point", "MultiPoint"])]
+            if g.empty:
+                continue
+
             try:
                 if "MultiPoint" in g.geometry.geom_type.unique():
                     g = g.explode(index_parts=False).reset_index(drop=True)
-            except TypeError:
+            except Exception:
                 g = g.explode().reset_index(drop=True)
 
-            # file-level base + per-row AGS (mode later)
-            base = kreis_base_from_stem(p.stem)
-            g["kreis_base"] = base
+            filename = p.name
 
-            # candidate label from attributes
-            labels = []
-            for _, r in g.iterrows():
-                lab = None
-                for nm in NAME_FIELDS:
-                    if nm in r and pd.notna(r[nm]):
-                        lab = clean_kreis_label(r[nm]); break
-                labels.append(lab)
-            g["kreis_label"] = labels
-
-            # energy + power
+            # energy
             if "energy_source_label" in g.columns:
-                g["energy_norm"] = g["energy_source_label"].apply(lambda v: normalize_energy(v, p.name))
+                g["energy_norm"] = g["energy_source_label"].apply(
+                    lambda v: normalize_energy(v, filename)
+                )
             elif "Energietraeger" in g.columns:
-                g["energy_norm"] = g["Energietraeger"].apply(lambda v: normalize_energy(v, p.name))
+                g["energy_norm"] = g["Energietraeger"].apply(
+                    lambda v: normalize_energy(v, filename)
+                )
             else:
-                g["energy_norm"] = normalize_energy(None, p.name)
+                g["energy_norm"] = normalize_energy(None, filename)
 
+            # power
             power_col = first_power_column(g.columns)
             if not power_col:
-                print(f"[WARN] no power field in {p.name}; skipped.")
+                print(f"  [WARN] no power field in {p.name}; skipped.")
                 continue
+
             g["_power"] = g[power_col].apply(parse_number)
             g = g[(pd.notna(g["_power"])) & (g["_power"] > 0)]
-            if g.empty: continue
+            if g.empty:
+                continue
 
-            # AGS5 (mode across rows)
-            ags = [extract_ags5(r) for _, r in g.iterrows()]
-            ags = [a for a in ags if a]
-            ags5 = collections.Counter(ags).most_common(1)[0][0] if ags else None
-            g["ags5"] = ags5
+            # AGS and label
+            for _, r in g.iterrows():
+                ags5 = extract_ags5(r)
+                if not ags5:
+                    continue
+                if ags5 not in centers_by_ags:
+                    # AGS we do not have a center for → skip
+                    continue
 
-            g["state_name"] = state_name
-            frames.append(g[["state_name","kreis_base","ags5","kreis_label","energy_norm","_power","geometry"]])
-        except Exception as e:
-            print(f"[WARN] skipped {p}: {e}")
+                center_state = state_by_ags.get(ags5, "")
+                kreis_name = name_by_ags.get(ags5, ags5)
 
-    if not frames:
-        print(f"[WARN] no usable features for state {state_name}")
+                # attribute-based label fallback if available
+                for nm in NAME_FIELDS:
+                    if nm in r and pd.notna(r[nm]):
+                        kreis_name = clean_kreis_label(r[nm])
+                        break
+
+                rows.append(
+                    {
+                        "state_slug": center_state,
+                        "kreis_key": ags5,
+                        "kreis_name": kreis_name,
+                        "energy_norm": r["energy_norm"],
+                        "_power": float(r["_power"]),
+                    }
+                )
+
+    if not rows:
+        print("[FATAL] No usable rows. Nothing to write.")
         return
 
-    plants = pd.concat(frames, ignore_index=True)
+    df = pd.DataFrame(rows)
 
-    # aggregate per (base, ags5)
-    rows = []
-    for (base, ags5), grp in plants.groupby(["kreis_base","ags5"], dropna=False):
+    # ---------------- AGGREGATE PER (STATE, KREIS) ----------------
+    grouped = []
+    for (state_slug, kreis_key), grp in df.groupby(
+        ["state_slug", "kreis_key"], dropna=False
+    ):
         totals = {f: 0.0 for f in PRIORITY_FIELDNAMES.values()}
         others = 0.0
         for _, r in grp.iterrows():
-            cat = r["energy_norm"]; pkw = float(r["_power"])
+            cat = r["energy_norm"]
+            pkw = float(r["_power"])
             if cat in PRIORITY_FIELDNAMES:
                 totals[PRIORITY_FIELDNAMES[cat]] += pkw
             else:
                 others += pkw
+
         totals[OTHERS_FIELD] = others
         totals["total_kw"] = sum(totals.values())
-        totals["state_name"] = state_name
-        # key and display name
-        totals["kreis_key"] = f"{base}|{ags5}" if ags5 else base
-        totals["kreis_name"] = choose_label(grp["kreis_label"].tolist()) or " ".join(w.capitalize() for w in base.split("-"))
-        # anchor
-        xs = grp.geometry.x.astype(float); ys = grp.geometry.y.astype(float)
-        totals["_x"], totals["_y"] = xs.mean(), ys.mean()
-        rows.append(totals)
+        totals["state_slug"] = state_slug
+        totals["kreis_key"] = kreis_key
+        totals["kreis_name"] = choose_label(grp["kreis_name"].tolist()) or kreis_key
 
-    agg = pd.DataFrame(rows)
-    agg["geometry"] = [Point(xy) for xy in zip(agg["_x"], agg["_y"])]
-    gdf = gpd.GeoDataFrame(agg.drop(columns=["_x","_y"]), geometry="geometry", crs="EPSG:4326")
+        # use center from centers file
+        cx, cy = centers_by_ags[kreis_key]
+        totals["_x"] = cx
+        totals["_y"] = cy
+        grouped.append(totals)
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_pts = OUTPUT_DIR / f"de_{slug}_landkreis_pies.geojson"  # points (plural)
-    gdf.to_file(out_pts, driver="GeoJSON")
+    agg = pd.DataFrame(grouped)
 
-    vmin = float(gdf["total_kw"].min()) if len(gdf) else 0.0
-    vmax = float(gdf["total_kw"].max()) if len(gdf) else 1.0
-    meta = {
-        "min_total_kw": vmin,
-        "max_total_kw": vmax,
-        "priority_fields": list(PRIORITY_FIELDNAMES.values()),
-        "others_field": OTHERS_FIELD,
-        "name_field": "kreis_name"
-    }
-    (OUTPUT_DIR / f"{slug}_landkreis_pie_style_meta.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"[OK] {state_name}: wrote {out_pts.name} (unique kreise={len(gdf)})")
+    # ---------------- WRITE PER STATE ----------------
+    for state_slug, grp in agg.groupby("state_slug"):
+        gdf = gpd.GeoDataFrame(
+            grp.drop(columns=["_x", "_y"]),
+            geometry=[Point(xy) for xy in zip(grp["_x"], grp["_y"])],
+            crs="EPSG:4326",
+        )
 
-def main():
-    if not INPUT_ROOT.exists():
-        raise RuntimeError(f"INPUT_ROOT not found: {INPUT_ROOT}")
-    for item in sorted(INPUT_ROOT.iterdir()):
-        if item.is_dir():
-            process_state(item)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        out_pts = OUTPUT_DIR / f"de_{state_slug}_landkreis_pies.geojson"
+        gdf.to_file(out_pts, driver="GeoJSON")
+
+        vmin = float(gdf["total_kw"].min()) if len(gdf) else 0.0
+        vmax = float(gdf["total_kw"].max()) if len(gdf) else 1.0
+        meta = {
+            "min_total_kw": vmin,
+            "max_total_kw": vmax,
+            "priority_fields": list(PRIORITY_FIELDNAMES.values()),
+            "others_field": OTHERS_FIELD,
+            "name_field": "kreis_name",
+        }
+        (OUTPUT_DIR / f"{state_slug}_landkreis_pie_style_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(
+            f"[OK] {state_slug}: wrote {out_pts.name} (unique_kreise={len(gdf)})"
+        )
+
 
 if __name__ == "__main__":
     main()

@@ -15,8 +15,8 @@ from qgis.core import QgsProject, QgsMapRendererCustomPainterJob
 # ---- SETTINGS ----
 OUT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\exports")  # change if needed
 BASE_FILENAME = "maStr_pieChart"  # <-- put your desired base filename here (no extension)
-DPI = 1200
-SCALE = 4.0
+DPI = 1000
+SCALE = 10
 PNG_TRANSPARENT_BG = False
 # ------------------
 
@@ -87,6 +87,7 @@ def export_canvas(base_stem: str):
 
     print(f"[OK] PNG -> {png_path}")
     print(f"[OK] SVG -> {svg_path}")
+    print(f"Finished.")
 
 # --- MAIN ---
 safe_stem = safe_filename(BASE_FILENAME)
