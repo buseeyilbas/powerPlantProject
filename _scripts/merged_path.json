@@ -1,0 +1,102 @@
+{
+  "download": {
+    "enabled": false,
+    "url": "https://download.marktstammdatenregister.de/Stichtag/Gesamtdatenexport_20250701_25.1.zip"
+  },
+
+  "steps": {
+    "download": false,
+    "extract": false,
+    "validate_xml": false,
+    "xml_to_json": false,
+    "valid_json": false,
+    "filter_active": false,
+
+    "filtering": true,
+    "geojson": true,
+    "post_filtering_4checks": true
+  },
+
+  "paths": {
+    "raw_data_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/raw",
+    "extracted_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/extracted",
+    "valid_xml_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/valid_xml",
+    "json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/json",
+    "valid_json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/valid_json",
+
+    "active_json_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/active_json",
+
+    "filtered_json_by_energy_code_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_energy_code",
+    "filtered_json_by_state_bundesland_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_bundesland",
+    "filtered_json_by_state_gemeindeschluessel_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_gemeindeschluessel",
+    "filtered_json_by_year_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_year",
+
+    "filtered_json_by_state_4checks_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_4checks",
+    "filtered_json_by_state_yearly_4checks_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_yearly_4checks",
+
+    "filtered_json_by_state_landkreis_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_landkreis",
+    "filtered_json_by_state_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_state_landkreis_yearly",
+
+    "filtered_json_by_landkreis_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_landkreis",
+    "filtered_json_by_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/filtered_json_by_landkreis_yearly",
+
+    "geojson_by_state_4_checks_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_4_checks",
+    "geojson_by_state_yearly_4_checks_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_yearly_4_checks",
+
+    "geojson_by_state_landkreis_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_landkreis",
+    "geojson_by_state_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_landkreis_yearly",
+
+    "geojson_by_landkreis_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_landkreis",
+    "geojson_by_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_landkreis_yearly"
+  },
+
+  "outputs": {
+    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany_4_checks.geojson"
+  },
+
+  "state_3checks": {
+    "polygon_states_path": "C:/Users/jo73vure/Desktop/powerPlantProject/data/polygon_states.json"
+  },
+
+  "gadm_polygons": {
+    "gadm_l2_path": "C:/Users/jo73vure/Desktop/powerPlantProject/gadm_data/gadm41_DEU/gadm41_DEU_2.json"
+  },
+
+  "energy_codes": [
+    "2403",
+    "2405",
+    "2406",
+    "2493",
+    "2495",
+    "2496",
+    "2497",
+    "2498", 
+    "2957",
+    "2958"
+  ],
+
+  "state_codes": {
+    "01": "Schleswig-Holstein",
+    "02": "Hamburg",
+    "03": "Niedersachsen",
+    "04": "Bremen",
+    "05": "Nordrhein-Westfalen",
+    "06": "Hessen",
+    "07": "Rheinland-Pfalz",
+    "08": "Baden-Württemberg",
+    "09": "Bayern",
+    "10": "Saarland",
+    "11": "Berlin",
+    "12": "Brandenburg",
+    "13": "Mecklenburg-Vorpommern",
+    "14": "Sachsen",
+    "15": "Sachsen-Anhalt",
+    "16": "Thüringen"
+  },
+
+  
+
+  "date_fields": {
+    "commissioning": "Inbetriebnahmedatum"
+  }
+}
