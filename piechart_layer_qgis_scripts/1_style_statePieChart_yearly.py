@@ -107,9 +107,13 @@ YEARLY_CHART_PATH = ROOT_DIR / "de_yearly_totals_chart.geojson"
 # which energy types count for totals (still used in other places if needed)
 ENERGY_KEYS = ["pv_kw", "battery_kw", "wind_kw", "hydro_kw", "biogas_kw", "others_kw"]
 
-# PER_BIN_MW: per 2-year bin PERIOD installed power (MW)
+# PER_BIN_GW: per 2-year bin PERIOD installed power (GW)
 # Robust: compute as difference of cumulative totals between consecutive bins.
-PER_BIN_MW = {}
+PER_BIN_GW = {}
+
+# CUM_BIN_GW: per bin CUMULATIVE installed power (GW)
+CUM_BIN_GW = {}
+
 
 try:
     if YEARLY_CHART_PATH.exists():
@@ -133,6 +137,14 @@ try:
             except Exception:
                 continue
 
+        # Store cumulative GW directly (for headings)
+        for slug, val_kw in cum_kw.items():
+            try:
+                CUM_BIN_GW[slug] = float(val_kw) / 1000000.0
+            except Exception:
+                pass
+
+
         # 2) Convert cumulative -> period via diff along YEAR_SLUG_ORDER
         prev = None
         for slug in YEAR_SLUG_ORDER:
@@ -143,15 +155,16 @@ try:
             else:
                 period_kw = cum_kw[slug] - cum_kw.get(prev, 0.0)
 
-            PER_BIN_MW[slug] = period_kw / 1000.0  # MW
+            PER_BIN_GW[slug] = period_kw / 1000000.0  # GW
             prev = slug
 
-        print(f"[INFO] Loaded PERIOD Installed Power (MW) for {len(PER_BIN_MW)} bins (diff of cumulative).")
+        print(f"[INFO] Loaded PERIOD GW for {len(PER_BIN_GW)} bins and CUMULATIVE GW for {len(CUM_BIN_GW)} bins.")
+
     else:
         print(f"[WARN] YEARLY_CHART_PATH not found: {YEARLY_CHART_PATH}")
 except Exception as e:
-    print(f"[WARN] Could not compute PER_BIN_MW: {e}")
-    PER_BIN_MW = {}
+    print(f"[WARN] Could not compute PER_BIN_GW: {e}")
+    PER_BIN_GW = {}
 
 
 def ensure_group(parent, name: str):
@@ -459,7 +472,7 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     Styling for the ROW chart:
       - stacked bar polygons color-coded by energy_type
       - year labels on left  (POINTs with label_anchor = 1)
-      - MW labels on right  (POINTs with value_anchor = 1)
+      - GW labels on right  (POINTs with value_anchor = 1)
     """
 
     fields = [f.name() for f in lyr.fields()]
@@ -517,13 +530,13 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     year_rule.setFilterExpression('"label_anchor" = 1')
     root_rule.appendChild(year_rule)
 
-    # (2) VALUE LABELS (POINTS) – sağdaki küçük MW değerleri
+    # (2) VALUE LABELS (POINTS) – sağdaki küçük GW değerleri
     value_pal = QgsPalLayerSettings()
     value_pal.enabled = True
     value_pal.isExpression = True
     value_pal.fieldName = (
         'CASE WHEN "value_anchor" = 1 '
-        'THEN format_number("total_kw" / 1000.0, 1) || \' MW\' '
+        'THEN format_number("total_kw" / 1000000.00, 1) || \' GW\' '
         'ELSE NULL END'
     )
 
@@ -613,7 +626,7 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     """
     Create one in-memory point layer with TWO labels:
       - main year heading (big, bold)
-      - subheading: Installed Power for this period (MW), smaller text
+      - subheading: Installed Power for this period (GW), smaller text
     """
 
     uri = (
@@ -640,16 +653,24 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     f_main["kind"] = "main"
     f_main["label"] = label_text
     feats.append(f_main)
-
-    # --- subheading: Installed Power (period-only MW) ---
-    mw_val = PER_BIN_MW.get(slug)
-    sub_text = f"Installed Power: {mw_val:,.1f} MW" if mw_val is not None else "Installed Power: n/a"
-
+    
+    # --- sub heading ---
     f_sub = QgsFeature(lyr.fields())
     f_sub.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(X_SUB, Y_SUB)))
     f_sub["kind"] = "sub"
-    f_sub["label"] = sub_text
+    # f_sub["label"] will be assigned below (sub_text)
     feats.append(f_sub)
+
+
+
+    # --- subheading: CUMULATIVE Installed Power (GW) ---
+    gw_cum = CUM_BIN_GW.get(slug)
+    gw_per = PER_BIN_GW.get(slug)
+
+
+    sub_text = f"Installed Power: {gw_per:,.1f} GW"
+    f_sub["label"] = sub_text
+
 
 
     prov.addFeatures(feats)

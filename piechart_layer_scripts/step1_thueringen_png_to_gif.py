@@ -17,7 +17,7 @@ PNG_FOLDER = Path(
 OUTPUT_GIF = PNG_FOLDER / "thueringen_state_piecharts_gif.gif"
 
 # Frame duration in milliseconds
-FRAME_DURATION_MS = 500  # 0.5 seconds per frame
+FRAME_DURATION_MS = 2000  # 2 seconds per frame
 
 def pngs_to_gif(png_folder: Path, output_gif: str, duration: int) -> None:
     png_files = sorted(png_folder.glob("*.png"))

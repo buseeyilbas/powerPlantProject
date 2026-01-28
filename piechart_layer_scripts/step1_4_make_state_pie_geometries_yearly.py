@@ -15,8 +15,8 @@ GLOBAL_META = BASE / "_GLOBAL_style_meta.json"
 # ---- sizing ----
 GLOBAL_SIZING = True          # True → all-over-the-years (use GLOBAL_META); False → per-bin
 R_MIN_M = 20000.0
-R_MAX_M = 90000.0
-GAP_M   = 2000.0
+R_MAX_M = 80000.0
+GAP_M   = 2500.0
 MAX_NUDGE_ITER = 120
 CENTERS_ARE_FIXED = True      # centers already fixed in step1_3
 
@@ -125,8 +125,10 @@ def pies_from_points(gdf_points, vmin, vmax, out_path: Path):
                 "state_number": state_num,
                 "energy_type":  k,
                 "power_kw":     float(dict(parts).get(k, 0.0)),
-                "share":        float(share),
                 "total_kw":     float(r.get("total_kw", 0.0)),
+                "power_gw":     float(dict(parts).get(k, 0.0)) / 1_000_000.0,
+                "total_gw":     float(r.get("total_kw", 0.0)) / 1_000_000.0,
+                "share":        float(share),
                 "radius_m":     float(c['r']),
                 "label_anchor": 1 if (anchor_key == k) else 0,
                 "year_bin":     r.get("year_bin_label", r.get("year_bin", "")),
