@@ -18,6 +18,8 @@ from pathlib import Path
 import math
 import json
 import os
+import re
+
 
 import geopandas as gpd
 from shapely.geometry import Polygon
@@ -142,7 +144,7 @@ def safe_to_file(gdf: gpd.GeoDataFrame, out_path: Path):
 
 def make_pies_for_points(g: gpd.GeoDataFrame, vmin: float, vmax: float, out_path: Path) -> int:
     if g.empty:
-        safe_to_file(gpd.GeoDataFrame([], geometry="geometry", crs="EPSG:4326"), out_path)
+        print(f"  [SKIP] input is empty: {out_path.name}")
         return 0
 
     if g.crs is None or g.crs.to_epsg() != 4326:
@@ -180,6 +182,8 @@ def make_pies_for_points(g: gpd.GeoDataFrame, vmin: float, vmax: float, out_path
                     "year_bin_label": r.get("year_bin_label", ""),
                     "energy_type": k,
                     "power_kw": float(dict(parts).get(k, 0.0)),
+                    "power_gw": float(dict(parts).get(k, 0.0)) / 1_000_000.0,
+                    "total_gw": float(r.get("total_kw", 0.0) or 0.0) / 1_000_000.0,
                     "share": float(share),
                     "total_kw": float(r.get("total_kw", 0.0) or 0.0),
                     "radius_m": float(c["r"]),
@@ -191,8 +195,14 @@ def make_pies_for_points(g: gpd.GeoDataFrame, vmin: float, vmax: float, out_path
                 }
             )
 
+    if not out_rows:
+        print(f"  [WARN] No pies created: {out_path.name} (all totals/parts are zero?)")
+        return 0
+
     out_gdf = gpd.GeoDataFrame(out_rows, geometry="geometry", crs="EPSG:4326")
     safe_to_file(out_gdf, out_path)
+
+
     return len(out_gdf)
 
 

@@ -48,8 +48,8 @@ YEAR_BINS = [
 ]
 
 # ------------------------------ SIZING ------------------------------
-R_MIN_M = 10000.0
-R_MAX_M = 35000.0
+R_MIN_M = 5000.0
+R_MAX_M = 30000.0
 
 COLORS = {
     "pv_kw": (255, 255, 0),
@@ -218,6 +218,8 @@ def process_one_bin(bin_slug: str, state_meta: dict):
                 "state_slug": state_slug,
                 "energy_type": key,
                 "power_kw": float(dict(parts).get(key, 0.0)),
+                "power_gw": float(dict(parts).get(key, 0.0)) / 1_000_000.0,
+                "total_gw": float(total_kw) / 1_000_000.0,
                 "share": float(share),
                 "total_kw": total_kw,
                 "radius_m": float(radius_m),

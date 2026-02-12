@@ -175,9 +175,18 @@ class ExtremumRef:
     commissioning_date: str
     commissioning_year: str
 
+    # NEW: store coordinates (WGS84 lon/lat)
+    lon: float
+    lat: float
+
+    # NEW: ready-to-click Google Maps link
+    google_maps_url: str
+
     def to_compact_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["power_kw"] = round(float(d["power_kw"]), 6)
+        d["lon"] = round(float(d["lon"]), 6)
+        d["lat"] = round(float(d["lat"]), 6)
         return d
 
 
@@ -491,6 +500,10 @@ def analyze() -> None:
     # Energy min/max tables
     energy_stats: Dict[str, EnergyMinMax] = {}
 
+    # Track top-5 max values for onshore wind (energy code 2497)
+    wind_top5: List[ExtremumRef] = []
+
+
     # Per-file and global counters
     per_file_rows: List[Dict[str, Any]] = []
 
@@ -594,6 +607,12 @@ def analyze() -> None:
             state_name_norm = poly_state_norm
             commissioning_year = extract_year(commissioning_date)
 
+            # NEW
+            lon = float(pt.x)
+            lat = float(pt.y)
+
+            google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
+
             ref = ExtremumRef(
                 file_name=file_name,
                 index_in_file=idx,
@@ -605,7 +624,26 @@ def analyze() -> None:
                 power_kw=float(power_kw),
                 commissioning_date=commissioning_date,
                 commissioning_year=commissioning_year,
+
+                # NEW
+                lon=lon,
+                lat=lat,
+                google_maps_url=google_maps_url,
             )
+
+            # ---- WIND ONSHORE TOP-5 LOGIC ----
+            if energy_code == "2497":
+                current_power = ref.power_kw
+
+                # Optional: keep only distinct power values (prevents duplicates)
+                already_in = any(abs(r.power_kw - current_power) < 1e-9 for r in wind_top5)
+                if not already_in:
+                    wind_top5.append(ref)
+                    wind_top5.sort(key=lambda r: r.power_kw, reverse=True)
+                    wind_top5 = wind_top5[:5]
+
+
+
 
             # Update per-energy min/max
             key = f"{energy_code}::{energy_label}"
@@ -710,16 +748,23 @@ def analyze() -> None:
     # energy json (with full refs)
     energy_payload: List[Dict[str, Any]] = []
     for _k, g in sorted(energy_stats.items(), key=lambda kv: (kv[1].energy_label, kv[1].energy_code)):
-        energy_payload.append(
-            {
-                "energy_code": g.energy_code,
-                "energy_type_name": ENERGY_CODE_TO_LABEL.get(g.energy_code, g.energy_label),
-                "min_power_kw": g.min_power_kw,
-                "max_power_kw": g.max_power_kw,
-                "min_ref": None if g.min_ref is None else g.min_ref.to_compact_dict(),
-                "max_ref": None if g.max_ref is None else g.max_ref.to_compact_dict(),
-            }
-        )
+        payload_item = {
+            "energy_code": g.energy_code,
+            "energy_type_name": ENERGY_CODE_TO_LABEL.get(g.energy_code, g.energy_label),
+            "min_power_kw": g.min_power_kw,
+            "max_power_kw": g.max_power_kw,
+            "min_ref": None if g.min_ref is None else g.min_ref.to_compact_dict(),
+            "max_ref": None if g.max_ref is None else g.max_ref.to_compact_dict(),
+        }
+
+        # Add wind max5 only for onshore wind
+        if g.energy_code == "2497":
+            payload_item["max_top5_refs"] = [r.to_compact_dict() for r in wind_top5]
+
+
+
+        energy_payload.append(payload_item)
+
 
 
     with open(energy_json, "w", encoding="utf-8") as f:

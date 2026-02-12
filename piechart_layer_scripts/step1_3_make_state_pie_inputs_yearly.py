@@ -24,7 +24,7 @@ import unicodedata
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, LineString
 
 # ---------- PATHS ----------
 INPUT_ROOT = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_4_checks")
@@ -508,16 +508,26 @@ def main():
         print(f"[BIN SCALE] {slug}: vmin={vmin:.2f}, vmax={vmax:.2f}, states={len(gdf)}  -> {out_pts.name}")
         all_bin_stats.append((slug, vmin, vmax, len(gdf)))
 
+
     # ----------------------------------------------------------
     #   STEP D) Germany-wide totals per bin:
     #     - PERIOD stack (per-bin contribution)
     #     - then CUMULATIVE across bins (for the row chart)
+    #   PLUS:
+    #     - ROW chart geometries (POLYGONS + POINTS) -> de_yearly_totals_chart.geojson
+    #     - ROW chart guide lines (LINESTRINGS)      -> de_yearly_totals_chart_guides.geojson
+    #     - STATE column chart split output:
+    #         * bars   (POLYGONS only) -> de_state_totals_columnChart_bars.geojson
+    #         * labels (POINTS only)   -> de_state_totals_columnChart_labels.geojson
     # ----------------------------------------------------------
+
     PART_FIELDS = ["pv_kw", "wind_kw", "hydro_kw", "battery_kw", "biogas_kw", "others_kw"]
 
-    # 1) PERIOD sums: sum period_by_state_bin over states for each bin
-    per_bin_energy_period = {}
-    for slug, label, *_ in YEAR_BINS:
+    # -------------------------------------------------------------------
+    # D1) PERIOD sums (Germany-wide): sum period_by_state_bin over states
+    # -------------------------------------------------------------------
+    per_bin_energy_period = {}  # slug -> {energy_kw sums in THIS period}
+    for slug, _label, *_ in YEAR_BINS:
         sums = {f: 0.0 for f in PART_FIELDS}
         found_any = False
 
@@ -532,12 +542,15 @@ def main():
         if found_any:
             per_bin_energy_period[slug] = sums
 
-    # 2) Make it cumulative across bins (for chart geometry)
-    yearly_totals = []
-    bin_energy_totals = {}   # cumulative per bin
+    # -------------------------------------------------------------------
+    # D2) CUMULATIVE across bins (Germany-wide) -> yearly_totals + bin_energy_totals
+    # -------------------------------------------------------------------
+    yearly_totals = []         # list of bins with cumulative totals (for labeling / sorting)
+    bin_energy_totals = {}     # slug -> {energy cumulative sums}
 
     cumulative = {f: 0.0 for f in PART_FIELDS}
-    for slug, label, *_ in YEAR_BINS:
+
+    for slug, _label, *_ in YEAR_BINS:
         if slug not in per_bin_energy_period:
             continue
 
@@ -554,6 +567,8 @@ def main():
             "year_bin_label": BIN_LABEL[slug],
             "total_kw": total_kw,  # cumulative total for DE chart
         })
+
+        # store the cumulative energy composition for this slug
         bin_energy_totals[slug] = dict(cumulative)
 
     # Write yearly totals JSON (cumulative)
@@ -564,52 +579,67 @@ def main():
             encoding="utf-8",
         )
         print(f"[INFO] Wrote yearly totals JSON (cumulative) -> {totals_json.name}")
+    else:
+        print("[WARN] yearly_totals is empty -> row chart will be skipped.")
 
-    # ---- ROW CHART (horizontal cumulative chart, west of Germany) ----
+    # -------------------------------------------------------------------
+    # D3) ROW CHART geometry (cumulative) + GUIDE LINES
+    # -------------------------------------------------------------------
     # Germany approx extent: 5.5–15.5E, 47–55.5N
     CHART_BASE_LON = -2.2    # left edge of the bars (further west)
     CHART_BASE_LAT = 47.5    # bottom (for the lowest year bar)
     MAX_BAR_WIDTH  = 6.8     # how far it extends east in degrees
-    BAR_HEIGHT_DEG = 0.15    # height of each bar (vertical thickness)
-    BAR_GAP_DEG    = 0.05    # vertical gap between bars
+    BAR_HEIGHT_DEG = 0.15    # height of each bar
+    BAR_GAP_DEG    = 0.05    # gap between bars
 
     # fixed X positions
-    YEAR_LABEL_LON  = CHART_BASE_LON - 0.8  # all year labels start here
-    VALUE_LABEL_LON = 5.3                   # all GW labels start here
+    YEAR_LABEL_LON  = CHART_BASE_LON - 0.8  # year labels
+    VALUE_LABEL_LON = 5.3                   # numbers column
+    GUIDE_END_LON   = VALUE_LABEL_LON - 0.35  # stop before the numbers
 
-    vals = [info["total_kw"] for info in yearly_totals if info["total_kw"] > 0]
+    # stack order for drawing (visual preference)
+    STACK_ORDER = ["hydro_kw", "biogas_kw", "pv_kw", "wind_kw", "others_kw", "battery_kw"]
+
+    # prepare features
+    chart_features = []   # polygons + points
+    guide_features = []   # lines only
+
+    vals = [info["total_kw"] for info in yearly_totals if float(info["total_kw"]) > 0.0]
     if vals:
         max_total = float(max(vals))
-        chart_features = []
 
-        STACK_ORDER = ["hydro_kw", "biogas_kw", "pv_kw",
-                       "wind_kw", "others_kw", "battery_kw"]
+        # We draw from TOP to BOTTOM: newest on top (reverse list),
+        # but y-position is computed with idx so they stack nicely.
+        yearly_totals_rev = list(reversed(yearly_totals))
 
-        for idx, info in enumerate(reversed(yearly_totals)):
+        for idx, info in enumerate(yearly_totals_rev):
             slug  = info["year_bin_slug"]
             label = info["year_bin_label"]
             total = float(info["total_kw"])
             if total <= 0:
                 continue
 
-            energy_sums = bin_energy_totals[slug]
+            energy_sums = bin_energy_totals.get(slug, None)
+            if energy_sums is None:
+                continue
 
-            # y-position (top down)
+            # y-position (bottom-up)
             y0 = CHART_BASE_LAT + idx * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
             y1 = y0 + BAR_HEIGHT_DEG
             y_center = 0.5 * (y0 + y1)
+
+            # compute total bar width (scaled by max_total)
+            bar_ratio = total / max_total if max_total > 0 else 0.0
+            bar_ratio = max(0.0, min(1.0, bar_ratio))
+            bar_width_total = bar_ratio * MAX_BAR_WIDTH
+
             x_base = CHART_BASE_LON
 
-            # ---- stacked bar segments ----
+            # ---- stacked bar segments (POLYGONS) ----
             for key in STACK_ORDER:
                 seg_val = float(energy_sums.get(key, 0.0) or 0.0)
                 if seg_val <= 0:
                     continue
-
-                # Segment widths sum to total bar width
-                bar_ratio = total / max_total if max_total > 0 else 0.0
-                bar_ratio = max(0.0, min(1.0, bar_ratio))
-                bar_width_total = bar_ratio * MAX_BAR_WIDTH
 
                 seg_ratio = seg_val / total if total > 0 else 0.0
                 seg_ratio = max(0.0, min(1.0, seg_ratio))
@@ -618,10 +648,11 @@ def main():
                     continue
 
                 x1 = x_base + seg_width
+
                 poly = Polygon([
                     (x_base, y0),
-                    (x1, y0),
-                    (x1, y1),
+                    (x1,    y0),
+                    (x1,    y1),
                     (x_base, y1),
                     (x_base, y0)
                 ])
@@ -634,12 +665,24 @@ def main():
                     "total_kw": total,
                     "label_anchor": 0,
                     "value_anchor": 0,
-                    "geometry": poly
+                    "geometry": poly,
                 })
-                x_base = x1
 
-            # ---- YEAR LABEL (POINT) ----
-            year_point = Point(YEAR_LABEL_LON, y_center)
+                x_base = x1  # advance
+
+            # ---- GUIDE LINE: from bar end -> numbers column (LINESTRING) ----
+            start_x = x_base + 0.05
+            end_x = GUIDE_END_LON
+            if start_x < end_x:
+                guide_line = LineString([(start_x, y_center), (end_x, y_center)])
+                guide_features.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": label,
+                    "kind": "guide",
+                    "geometry": guide_line,
+                })
+
+            # ---- YEAR LABEL POINT ----
             chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
@@ -648,11 +691,10 @@ def main():
                 "total_kw": total,
                 "label_anchor": 1,
                 "value_anchor": 0,
-                "geometry": year_point
+                "geometry": Point(YEAR_LABEL_LON, y_center),
             })
 
-            # ---- VALUE LABEL (POINT, FIXED X=VALUE_LABEL_LON) ----
-            value_point = Point(VALUE_LABEL_LON, y_center)
+            # ---- VALUE LABEL POINT (numbers only; unit handled elsewhere in QGIS style) ----
             chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
@@ -661,40 +703,51 @@ def main():
                 "total_kw": total,
                 "label_anchor": 0,
                 "value_anchor": 1,
-                "geometry": value_point
+                "geometry": Point(VALUE_LABEL_LON, y_center),
             })
 
-            # ---- CHART TITLE AS POINT ----
-            title_point = Point(
-                CHART_BASE_LON + MAX_BAR_WIDTH / 2.0,
-                CHART_BASE_LAT + (len(yearly_totals) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
-            )
-            chart_features.append({
-                "year_bin_slug": "title",
-                "year_bin_label": "Cumulative Installed Power (GW)",
-                "energy_type": "others_kw",
-                "energy_kw": 0.0,
-                "total_kw": 0.0,
-                "label_anchor": 0,
-                "value_anchor": 0,
-                "geometry": title_point
-            })
+        # ---- CHART TITLE POINT (add ONCE, outside the loop) ----
+        title_y = CHART_BASE_LAT + (len(yearly_totals_rev) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
+        title_x = CHART_BASE_LON + MAX_BAR_WIDTH / 2.0
+
+        chart_features.append({
+            "year_bin_slug": "title",
+            "year_bin_label": "Cumulative Installed Power (2-Year Periods)",
+            "energy_type": "others_kw",
+            "energy_kw": 0.0,
+            "total_kw": 0.0,
+            "label_anchor": 0,
+            "value_anchor": 0,
+            "geometry": Point(title_x, title_y),
+        })
+
+        # ---- UNIT POINT (optional; keep if your style uses it) ----
+        # If you decided to remove this and put GW inside title in style,
+        # you can delete this block safely.
+        chart_features.append({
+            "year_bin_slug": "unit",
+            "year_bin_label": "GW",
+            "energy_type": "others_kw",
+            "energy_kw": 0.0,
+            "total_kw": 0.0,
+            "label_anchor": 0,
+            "value_anchor": 0,
+            "geometry": Point(VALUE_LABEL_LON, title_y),
+        })
 
         # ---- YEAR HEADINGS (top of Germany) ----
-        HEADING_X_MAIN = 9.5        # roughly center longitude of Germany
-        HEADING_Y_MAIN = 55.0       # main heading (year)
-        HEADING_X_SUB  = 16.0       # slightly left of center
-        HEADING_Y_SUB  = 54.9       # sub line (Installed Power)
+        HEADING_X_MAIN = 9.3
+        HEADING_Y_MAIN = 54.9
+        HEADING_X_SUB  = 11.8
+        HEADING_Y_SUB  = 54.8
 
-        heading_features = []
         for info in yearly_totals:
             slug = info["year_bin_slug"]
             label = info["year_bin_label"]
-
             cum_total_kw = float(info["total_kw"])
-            cum_total_gw = cum_total_kw / 1000000.0
+            cum_total_gw = cum_total_kw / 1_000_000.0
 
-            heading_main = {
+            chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
                 "energy_type": "heading_main",
@@ -703,27 +756,173 @@ def main():
                 "label_anchor": 0,
                 "value_anchor": 1,
                 "geometry": Point(HEADING_X_MAIN, HEADING_Y_MAIN),
-            }
+            })
 
-            heading_sub = {
+            chart_features.append({
                 "year_bin_slug": slug,
-                "year_bin_label": f"Cumulative Installed Power: {cum_total_gw:,.2f} GW",
+                "year_bin_label": f"Installed Power (Period): n/a",  # keep your period logic elsewhere if needed
                 "energy_type": "heading_sub",
                 "energy_kw": 0.0,
                 "total_kw": cum_total_kw,
                 "label_anchor": 0,
                 "value_anchor": 1,
                 "geometry": Point(HEADING_X_SUB, HEADING_Y_SUB),
-            }
+            })
 
-            heading_features.extend([heading_main, heading_sub])
-
-        chart_features.extend(heading_features)
-
+        # write row chart GeoJSON
         chart_gdf = gpd.GeoDataFrame(chart_features, geometry="geometry", crs="EPSG:4326")
         chart_path = OUT_BASE / "de_yearly_totals_chart.geojson"
         chart_gdf.to_file(chart_path, driver="GeoJSON")
-        print(f"[INFO] Wrote cumulative yearly total ROW chart: {chart_path.name} ({len(chart_gdf)} segments)")
+        print(f"[INFO] Wrote cumulative yearly total ROW chart -> {chart_path.name} ({len(chart_gdf)} features)")
+
+        # write guide lines GeoJSON
+        if guide_features:
+            guides_gdf = gpd.GeoDataFrame(guide_features, geometry="geometry", crs="EPSG:4326")
+            guides_path = OUT_BASE / "de_yearly_totals_chart_guides.geojson"
+            guides_gdf.to_file(guides_path, driver="GeoJSON")
+            print(f"[INFO] Wrote row chart guide lines -> {guides_path.name} ({len(guides_gdf)} lines)")
+        else:
+            print("[WARN] No guide lines created (guide_features empty).")
+
+    else:
+        print("[WARN] No valid totals for row chart (vals empty). Row chart skipped.")
+
+
+    # -------------------------------------------------------------------
+    # D4) STATE STACKED COLUMN CHART (16 columns, cumulative totals per bin)
+    #     Split output: BARS (polygons) + LABELS (points)
+    # -------------------------------------------------------------------
+    # Geometry settings (you can tweak later)
+    STATE_COL_X0 = 16.2
+    STATE_COL_BASE_Y = 47.6
+    STATE_COL_MAX_H = 6.2
+    STATE_COL_W = 0.26
+    STATE_COL_GAP = 0.10
+
+    STATE_COL_LABEL_Y = STATE_COL_BASE_Y - 0.30
+    STATE_COL_VALUE_Y_PAD = 0.08
+
+    STATE_COL_TITLE_X = 18.7
+    STATE_COL_TITLE_Y = 54.2
+
+    state_bar_features = []   # polygons only
+    state_lbl_features = []   # points only
+
+    # max cumulative total among all states+bins for consistent scaling
+    max_state_total = 0.0
+    for slug, _label, *_ in YEAR_BINS:
+        for row in cumulative_by_bin.get(slug, []):
+            max_state_total = max(max_state_total, float(row.get("total_kw", 0.0) or 0.0))
+
+    if max_state_total <= 0.0:
+        print("[WARN] STATE column chart skipped: max_state_total <= 0")
+    else:
+        def _state_sort_key(r):
+            try:
+                return int(r.get("state_number", 999))
+            except Exception:
+                return 999
+
+        # For each bin, build 16 columns
+        for slug, bin_label, *_ in YEAR_BINS:
+            rows = sorted(cumulative_by_bin.get(slug, []), key=_state_sort_key)
+            if not rows:
+                continue
+
+            for r in rows:
+                sn = r.get("state_number")
+                if sn is None:
+                    continue
+                try:
+                    sn_int = int(sn)
+                except Exception:
+                    continue
+
+                total_kw = float(r.get("total_kw", 0.0) or 0.0)
+                ratio_total = max(0.0, min(1.0, total_kw / max_state_total))
+                col_h = ratio_total * STATE_COL_MAX_H
+
+                x_left = STATE_COL_X0 + (sn_int - 1) * (STATE_COL_W + STATE_COL_GAP)
+                x_right = x_left + STATE_COL_W
+                x_center = 0.5 * (x_left + x_right)
+
+                y_base = STATE_COL_BASE_Y
+                y_top = y_base + col_h
+
+                # ----- stacked segments (POLYGONS) -----
+                y_cursor = y_base
+                for key in STACK_ORDER:
+                    part_kw = float(r.get(key, 0.0) or 0.0)
+                    if total_kw <= 0 or part_kw <= 0:
+                        continue
+
+                    seg_ratio = max(0.0, min(1.0, part_kw / total_kw))
+                    seg_h = seg_ratio * col_h
+                    if seg_h <= 0:
+                        continue
+
+                    poly = Polygon([
+                        (x_left,  y_cursor),
+                        (x_right, y_cursor),
+                        (x_right, y_cursor + seg_h),
+                        (x_left,  y_cursor + seg_h),
+                        (x_left,  y_cursor),
+                    ])
+
+                    state_bar_features.append({
+                        "year_bin_slug": slug,
+                        "year_bin_label": bin_label,
+                        "state_number": sn_int,
+                        "energy_type": key,  # MUST match PALETTE keys in QGIS style
+                        "total_kw": total_kw,
+                        "geometry": poly,
+                    })
+
+                    y_cursor += seg_h
+
+                # ----- labels (POINTS) -----
+                state_lbl_features.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": bin_label,
+                    "state_number": sn_int,
+                    "kind": "state_label",
+                    "total_kw": total_kw,
+                    "geometry": Point(x_center, STATE_COL_LABEL_Y),
+                })
+
+                state_lbl_features.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": bin_label,
+                    "state_number": sn_int,
+                    "kind": "value_label",
+                    "total_kw": total_kw,
+                    "geometry": Point(x_center, y_top + STATE_COL_VALUE_Y_PAD),
+                })
+
+        # Title point (add ONCE)
+        state_lbl_features.append({
+            "year_bin_slug": "state_title",
+            "year_bin_label": "Cumulative Installed Power by State (GW)",
+            "state_number": 0,
+            "kind": "title",
+            "total_kw": 0.0,
+            "geometry": Point(STATE_COL_TITLE_X, STATE_COL_TITLE_Y),
+        })
+
+        # Write two GeoJSON outputs
+        state_col_bars_path = OUT_BASE / "de_state_totals_columnChart_bars.geojson"
+        state_col_labels_path = OUT_BASE / "de_state_totals_columnChart_labels.geojson"
+
+        bars_gdf = gpd.GeoDataFrame(state_bar_features, geometry="geometry", crs="EPSG:4326")
+        labels_gdf = gpd.GeoDataFrame(state_lbl_features, geometry="geometry", crs="EPSG:4326")
+
+        bars_gdf.to_file(state_col_bars_path, driver="GeoJSON")
+        labels_gdf.to_file(state_col_labels_path, driver="GeoJSON")
+
+        print(f"[INFO] Wrote STATE column chart BARS   -> {state_col_bars_path.name} ({len(bars_gdf)} features)")
+        print(f"[INFO] Wrote STATE column chart LABELS -> {state_col_labels_path.name} ({len(labels_gdf)} features)")
+
+
 
     # ----------------------------------------------------------
     #   STEP E) GLOBAL meta for all-years sizing of pies + HUD
@@ -737,30 +936,30 @@ def main():
         )
         print(f"[GLOBAL SCALE] min={gmin:.2f}, max={gmax:.2f}  -> {GLOBAL_META.name}")
 
-        # ---- ROW-ALIGNED HUD STATE NAMES ----
-        HUD_X = 17.0
-        HUD_BASE_Y = 54.0
-        HUD_ROW_STEP = -0.40
+        # # ---- ROW-ALIGNED HUD STATE NAMES ----
+        # HUD_X = 17.0
+        # HUD_BASE_Y = 54.0
+        # HUD_ROW_STEP = -0.40
 
-        static_rows = []
-        sorted_states = sorted(STATE_NAME_TO_NUMBER.items(), key=lambda kv: kv[1])
+        # static_rows = []
+        # sorted_states = sorted(STATE_NAME_TO_NUMBER.items(), key=lambda kv: kv[1])
 
-        for idx, (sname, num) in enumerate(sorted_states):
-            y = HUD_BASE_Y + idx * HUD_ROW_STEP
-            x = HUD_X
-            slug = OFFICIAL_TO_SLUG.get(sname, normalize_text(sname))
+        # for idx, (sname, num) in enumerate(sorted_states):
+        #     y = HUD_BASE_Y + idx * HUD_ROW_STEP
+        #     x = HUD_X
+        #     slug = OFFICIAL_TO_SLUG.get(sname, normalize_text(sname))
 
-            static_rows.append({
-                "state_name": sname,
-                "state_slug": slug,
-                "state_number": int(num),
-                "geometry": Point(x, y),
-            })
+        #     static_rows.append({
+        #         "state_name": sname,
+        #         "state_slug": slug,
+        #         "state_number": int(num),
+        #         "geometry": Point(x, y),
+        #     })
 
-        static_gdf = gpd.GeoDataFrame(static_rows, geometry="geometry", crs="EPSG:4326")
-        static_path = OUT_BASE / "de_state_numbers_fixed.geojson"
-        static_gdf.to_file(static_path, driver="GeoJSON")
-        print(f"[INFO] Wrote HUD state-number layer (row aligned) with {len(static_gdf)} states -> {static_path.name}")
+        # static_gdf = gpd.GeoDataFrame(static_rows, geometry="geometry", crs="EPSG:4326")
+        # static_path = OUT_BASE / "de_state_numbers_fixed.geojson"
+        # static_gdf.to_file(static_path, driver="GeoJSON")
+        # print(f"[INFO] Wrote HUD state-number layer (row aligned) with {len(static_gdf)} states -> {static_path.name}")
 
         # ---- ENERGY TYPE LEGEND (top-left, fixed positions) ----
         LEG_BASE_LON   = -2.2
