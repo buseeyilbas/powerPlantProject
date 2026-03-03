@@ -20,7 +20,7 @@ import unicodedata
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, LineString
 
 # ---------- PATHS ----------
 INPUT_ROOT = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_4_checks\thueringen")
@@ -55,7 +55,7 @@ YEAR_BINS = [
     ("2013_2014", "2013–2014", 2013, 2014),
     ("2015_2016", "2015–2016", 2015, 2016),
     ("2017_2018", "2017–2018", 2017, 2018),
-    ("2019_2020", "2019–2020", 2019, 2020),
+    ("2019_2020", "2019–2020", 2019, 2020),   
     ("2021_2022", "2021–2022", 2021, 2022),
     ("2023_2024", "2023–2024", 2023, 2024),
     ("2025_2026", "2025–2026", 2025, 2026),
@@ -458,49 +458,78 @@ def main():
     missing_year = df["_year"].isna().sum()
     print(f"[CHECK] rows with _year=None: {missing_year}")
 
-    # ---- Aggregate per (year-bin) and assign center ----
-    per_bin_rows = {}
-    global_totals = []
+    # ----------------------------------------------------------
+    # STEP A) PERIOD aggregation per bin (non-cumulative)
+    # ----------------------------------------------------------
+    period_by_bin = {}
 
     for yslug, grp in df.groupby("year_bin_slug", dropna=False):
         label = grp["year_bin_label"].iloc[0]
 
-        totals = {f: 0.0 for f in PRIORITY_FIELDNAMES.values()}
-        others = 0.0
+        parts = {f: 0.0 for f in PRIORITY_FIELDNAMES.values()}
+        parts[OTHERS_FIELD] = 0.0
 
         for _, r in grp.iterrows():
             cat = r["energy_norm"]
             pkw = float(r["_power"])
+
             if cat in PRIORITY_FIELDNAMES:
-                totals[PRIORITY_FIELDNAMES[cat]] += pkw
+                parts[PRIORITY_FIELDNAMES[cat]] += pkw
             else:
-                others += pkw
+                parts[OTHERS_FIELD] += pkw
 
-        totals[OTHERS_FIELD] = others
-        totals["total_kw"] = sum(totals.values())
+        period_by_bin[yslug] = parts
 
-        totals["state_name"] = STATE_NAME
-        totals["state_slug"] = STATE_SLUG
-        totals["year_bin_slug"] = yslug
-        totals["year_bin_label"] = label
-        totals["state_number"] = STATE_NUMBER
+    # ----------------------------------------------------------
+    # STEP B) CUMULATIVE across bins (LIKE step1_3)
+    # ----------------------------------------------------------
+    cumulative_by_bin = {}
+    global_totals = []
 
-        # Pick center (state pie center)
+    running = {f: 0.0 for f in PRIORITY_FIELDNAMES.values()}
+    running[OTHERS_FIELD] = 0.0
+
+    for slug, label, *_ in YEAR_BINS:
+
+        period_parts = period_by_bin.get(slug, None)
+        if period_parts:
+            for k, v in period_parts.items():
+                running[k] += float(v)
+
+        total_kw = float(sum(running.values()))
+
+        row = {
+            "pv_kw": running["pv_kw"],
+            "wind_kw": running["wind_kw"],
+            "hydro_kw": running["hydro_kw"],
+            "battery_kw": running["battery_kw"],
+            "biogas_kw": running["biogas_kw"],
+            "others_kw": running["others_kw"],
+            "total_kw": total_kw,
+
+            "state_name": STATE_NAME,
+            "state_slug": STATE_SLUG,
+            "state_number": STATE_NUMBER,
+            "year_bin_slug": slug,
+            "year_bin_label": label,
+        }
+
+        # center
         if baseline_center is not None:
             ax, ay = baseline_center
         else:
-            xs = grp.geometry.x.astype(float)
-            ys = grp.geometry.y.astype(float)
+            xs = df.geometry.x.astype(float)
+            ys = df.geometry.y.astype(float)
             ax, ay = float(xs.mean()), float(ys.mean())
 
-        totals["_x"], totals["_y"] = ax, ay
+        row["_x"], row["_y"] = ax, ay
 
-        per_bin_rows.setdefault(yslug, []).append(totals)
-        global_totals.append(totals["total_kw"])
+        cumulative_by_bin.setdefault(slug, []).append(row)
+        global_totals.append(total_kw)
 
     # ---- Write per-bin point outputs ----
     for slug, label, *_ in YEAR_BINS:
-        rows = per_bin_rows.get(slug, [])
+        rows = cumulative_by_bin.get(slug, [])
         if not rows:
             print(f"[SKIP] No rows for bin {slug}")
             continue
@@ -523,6 +552,7 @@ def main():
         meta = {
             "min_total_kw": vmin,
             "max_total_kw": vmax,
+            "is_cumulative": True,
             "priority_fields": list(PRIORITY_FIELDNAMES.values()),
             "others_field": OTHERS_FIELD,
             "name_field": "state_name",
@@ -540,7 +570,7 @@ def main():
 
     per_bin_energy = {}
     for slug, label, *_ in YEAR_BINS:
-        rows = per_bin_rows.get(slug, [])
+        rows = cumulative_by_bin.get(slug, [])
         if not rows:
             continue
         energy_sums = {f: 0.0 for f in PART_FIELDS}
@@ -647,6 +677,22 @@ def main():
                 "geometry": Point(YEAR_LABEL_LON, y_center)
             })
 
+            # ---- GUIDE LINE ----
+            GUIDE_END_LON = VALUE_LABEL_LON - 0.03
+
+            start_x = x_base + 0.01
+            end_x = GUIDE_END_LON
+
+            if start_x < end_x:
+                guide_line = LineString([(start_x, y_center), (end_x, y_center)])
+
+                chart_features.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": label,
+                    "kind": "guide",
+                    "geometry": guide_line
+                })
+
             chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
@@ -664,13 +710,65 @@ def main():
         )
         chart_features.append({
             "year_bin_slug": "title",
-            "year_bin_label": "Thüringen - Cumulative Installed Power (MW)",
+            "year_bin_label": "Thüringen - Cumulative Installed Power",
             "energy_type": "others_kw",
             "energy_kw": 0.0,
             "total_kw": 0.0,
             "label_anchor": 0,
             "value_anchor": 0,
             "geometry": title_point
+        })
+
+        # ---- CHART TITLE POINT ----
+        title_y = CHART_BASE_LAT + (len(yearly_totals) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
+        title_x = CHART_BASE_LON + MAX_BAR_WIDTH / 2.0
+
+        chart_features.append({
+            "year_bin_slug": "title",
+            "year_bin_label": "Thüringen - Cumulative Installed Power",
+            "energy_type": "others_kw",
+            "energy_kw": 0.0,
+            "total_kw": 0.0,
+            "label_anchor": 0,
+            "value_anchor": 0,
+            "geometry": Point(title_x, title_y),
+        })
+
+        # ---- UNIT POINT (MW) aligned with VALUE numbers column, same row as title ----
+        chart_features.append({
+            "year_bin_slug": "unit",
+            "year_bin_label": "MW",
+            "energy_type": "others_kw",
+            "energy_kw": 0.0,
+            "total_kw": 0.0,
+            "label_anchor": 0,
+            "value_anchor": 0,
+            "geometry": Point(VALUE_LABEL_LON, title_y),
+        })
+
+        # ---- FRAME (rectangle) ----
+        FRAME_MARGIN_X = 0.05
+        FRAME_MARGIN_Y = 0.05
+
+        min_x = CHART_BASE_LON - FRAME_MARGIN_X
+        max_x = CHART_BASE_LON + MAX_BAR_WIDTH + FRAME_MARGIN_X
+
+        min_y = CHART_BASE_LAT - FRAME_MARGIN_Y
+        max_y = CHART_BASE_LAT + len(yearly_totals) * (BAR_HEIGHT_DEG + BAR_GAP_DEG) + FRAME_MARGIN_Y
+
+        frame_poly = Polygon([
+            (min_x, min_y),
+            (max_x, min_y),
+            (max_x, max_y),
+            (min_x, max_y),
+            (min_x, min_y),
+        ])
+
+        chart_features.append({
+            "year_bin_slug": "frame",
+            "year_bin_label": "frame",
+            "energy_type": "frame",
+            "geometry": frame_poly
         })
 
         HEADING_X_MAIN = 10.8

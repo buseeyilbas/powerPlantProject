@@ -12,7 +12,8 @@ from qgis.core import (
 )
 
 # Germany extent in WGS84
-extent_wgs84 = QgsRectangle(9.0, 50.2, 12.5, 51.8)
+extent_wgs84 = QgsRectangle(8.9, 50.2, 12.5, 51.8)
+extent_wgs84 = QgsRectangle(9.4, 49.95, 13.5, 52.05) 
 crs_wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
 crs_target = QgsProject.instance().crs()
 

@@ -1,6 +1,7 @@
 # Filename: step2_5_thueringen_statewise_landkreis_pie_inputs_yearly.py
 # Purpose : Build THUERINGEN yearly Landkreis pie INPUT POINTS per 2-year bin (Landkreis-level).
-#           - Aggregates power by (Landkreis, year-bin) and splits by energy type.
+#           - Aggregates PERIOD power by (Landkreis, year-bin) and splits by energy type.
+#           - Converts PERIOD -> CUMULATIVE across bins (so pies grow over time).
 #           - Uses fixed Landkreis centers from step0 output (thueringen_landkreis_centers.geojson).
 #           - IMPORTANT: Assigns Landkreis using:
 #               (1) row attribute candidates (Landkreis / NAME_2 / ...)
@@ -8,14 +9,17 @@
 #           - IMPORTANT: Drops rows that do not map to a known Thüringen Landkreis center.
 #             This is the canonical filter you MUST mirror in the state pipeline if you want consistent power.
 #           - Writes:
-#               * Per-bin pie INPUT points (one point per Landkreis per bin)
-#               * Global meta (all-years min/max) for sizing
-#               * Thüringen cumulative row chart (stacked by energy type) + headings
+#               * Per-bin CUMULATIVE pie INPUT points (one point per Landkreis per bin)
+#               * Global meta (all-bins min/max) for sizing
+#               * Thüringen cumulative ROW chart (stacked by energy type) + headings
+#               * ROW chart guide lines (separate GeoJSON)
+#               * ROW chart frame (separate GeoJSON)
 #               * Energy type legend points
 #
 # Notes:
+# - MW is used for labeling (values are stored as kW, styles convert to MW).
 # - Coordinates for charts/headings are intentionally coarse (tune later in QGIS for Thüringen zoom).
-# - All comments and filenames are in English (per your preference).
+# - All comments and filenames are in English.
 
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from typing import Dict, Tuple, Optional, Iterable, List
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, LineString
 
 
 # ---------- PATHS ----------
@@ -73,6 +77,7 @@ YEAR_BINS = [
     ("2025_2026", "2025–2026", 2025, 2026),
 ]
 BIN_LABEL = {slug: label for (slug, label, *_ ) in YEAR_BINS}
+YEAR_SLUG_ORDER = [slug for (slug, _label, _y1, _y2) in YEAR_BINS]
 INCLUDE_UNKNOWN = False  # if False: drop rows whose year/bin is unknown
 
 
@@ -96,6 +101,9 @@ PRIORITY_FIELDNAMES = {
     "Biogas":                          "biogas_kw",
 }
 OTHERS_FIELD = "others_kw"
+
+PART_FIELDS = ["pv_kw", "wind_kw", "hydro_kw", "battery_kw", "biogas_kw", "others_kw"]
+STACK_ORDER = ["hydro_kw", "biogas_kw", "pv_kw", "wind_kw", "others_kw", "battery_kw"]
 
 
 # ---------- THUERINGEN CONSTANTS ----------
@@ -212,271 +220,195 @@ def year_to_bin(y: Optional[int]) -> Tuple[str, str]:
     return ("unknown", "Unknown / NA")
 
 
-def load_thueringen_centers() -> Tuple[Dict[str, Tuple[float, float]], Dict[str, str]]:
+def ensure_point_geometries(g: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    if g.empty:
+        return g
+    if g.geometry is None:
+        return g.iloc[0:0].copy()
+    g = g[g.geometry.notna()].copy()
+    if g.empty:
+        return g
+    g = g[g.geometry.geom_type.isin(["Point", "MultiPoint"])].copy()
+    if g.empty:
+        return g
+    return g
+
+
+def load_thueringen_centers() -> Tuple[
+    Dict[str, Tuple[float, float]],
+    Dict[str, str],
+    Dict[str, int],
+]:
     """
     Load Thüringen Landkreis centers from step0 output.
 
     Returns
     -------
-    centers: dict[landkreis_slug] -> (lon, lat)
-    slug_to_name: dict[landkreis_slug] -> landkreis_name
+    centers: kreis_slug -> (lon, lat)
+    slug_to_name: kreis_slug -> kreis_name
     """
     if not CENTERS_PATH.exists():
-        raise RuntimeError(f"CENTERS_PATH not found: {CENTERS_PATH}")
+        raise FileNotFoundError(f"[FATAL] Centers file not found: {CENTERS_PATH}")
 
-    g = gpd.read_file(CENTERS_PATH)
-    if g.crs is None:
-        g = g.set_crs("EPSG:4326", allow_override=True)
+    g = gpd.read_file(str(CENTERS_PATH))
+    if g.empty:
+        raise RuntimeError("[FATAL] Centers file is empty.")
 
-    if "landkreis_slug" not in g.columns:
-        raise RuntimeError("Centers file missing column: landkreis_slug")
+    # Accept a few schema variants
+    slug_col = None
+    for c in ["kreis_slug", "kreis_key", "landkreis_slug", "slug"]:
+        if c in g.columns:
+            slug_col = c
+            break
+    if slug_col is None:
+        raise RuntimeError("[FATAL] Centers file has no kreis_slug/kreis_key column.")
 
-    name_col = "landkreis_name" if "landkreis_name" in g.columns else None
+    name_col = None
+    for c in ["kreis_name", "landkreis_name", "name"]:
+        if c in g.columns:
+            name_col = c
+            break
+
+    number_col = None
+    for c in ["kreis_number", "landkreis_number", "number", "kreis_num", "lk_number"]:
+        if c in g.columns:
+            number_col = c
+            break
 
     centers: Dict[str, Tuple[float, float]] = {}
     slug_to_name: Dict[str, str] = {}
+    slug_to_number: Dict[str, int] = {}
 
     for _, r in g.iterrows():
-        slug = str(r.get("landkreis_slug", "")).strip()
-        if not slug:
+        ks = str(r.get(slug_col, "")).strip()
+        if not ks:
             continue
-        geom = r.geometry
-        if geom is None or geom.is_empty or geom.geom_type != "Point":
-            continue
-        centers[slug] = (float(geom.x), float(geom.y))
-        if name_col:
-            slug_to_name[slug] = str(r.get(name_col, "")).strip() or slug
-        else:
-            slug_to_name[slug] = slug
-
-    return centers, slug_to_name
-
-
-def load_thueringen_landkreis_polygons() -> gpd.GeoDataFrame:
-    """
-    Load Thüringen Landkreis polygons from GADM L2 for polygon fallback assignment.
-    Returns columns: landkreis_slug, geometry
-    """
-    if not GADM_L2_PATH.exists():
-        raise RuntimeError(f"GADM_L2_PATH not found: {GADM_L2_PATH}")
-
-    g = gpd.read_file(GADM_L2_PATH)
-    if g.crs is None:
-        g = g.set_crs("EPSG:4326", allow_override=True)
-
-    if "NAME_1" not in g.columns or "NAME_2" not in g.columns:
-        raise RuntimeError("GADM L2 is missing NAME_1/NAME_2 columns.")
-
-    g = g[g["NAME_1"].astype(str).str.strip().str.lower().isin(["thüringen", "thueringen"])].copy()
-    if g.empty:
-        raise RuntimeError("No Thüringen polygons found in GADM L2.")
-
-    g["landkreis_slug"] = g["NAME_2"].astype(str).apply(norm)
-    return g[["landkreis_slug", "geometry"]].copy()
-
-
-def pick_landkreis_from_row(row: pd.Series) -> Optional[str]:
-    """
-    Try to read Landkreis name/label from known column candidates.
-    """
-    candidates = ("Landkreis", "landkreis", "NAME_2", "kreis_name", "landkreis_name", "LandkreisName")
-    for c in candidates:
-        if c in row and pd.notna(row[c]):
-            return str(row[c])
-    return None
-
-
-def ensure_point_geometries(g: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    g = g[~g.geometry.is_empty & g.geometry.notnull()].copy()
-    g = g[g.geometry.geom_type.isin(["Point", "MultiPoint"])].copy()
-    if g.empty:
-        return g
-
-    try:
-        if "MultiPoint" in list(g.geometry.geom_type.unique()):
-            g = g.explode(index_parts=False).reset_index(drop=True)
-    except TypeError:
-        g = g.explode().reset_index(drop=True)
-
-    g = g[g.geometry.geom_type == "Point"].copy()
-    return g
-
-
-def assign_kreis_slug_with_fallback(
-    pts: gpd.GeoDataFrame,
-    lk_poly: gpd.GeoDataFrame,
-) -> gpd.GeoDataFrame:
-    """
-    Assign kreis_slug to each point.
-    Strategy:
-      1) Use row attribute candidates if present.
-      2) If missing/empty, use polygon lookup (within, then intersects).
-    Output column: kreis_slug
-    """
-    pts = pts.copy()
-
-    # 1) Attribute-based
-    def attr_slug(r):
-        v = pick_landkreis_from_row(r)
-        return norm(v) if v else ""
-
-    pts["kreis_slug"] = pts.apply(attr_slug, axis=1).fillna("").astype(str)
-
-    missing = pts["kreis_slug"].eq("") | pts["kreis_slug"].isna()
-    missing_n = int(missing.sum())
-    if missing_n == 0:
-        return pts
-
-    missing_pts = pts[missing].copy()
-    missing_pts = gpd.GeoDataFrame(missing_pts, geometry="geometry", crs="EPSG:4326")
-
-    # within (strict)
-    joined = gpd.sjoin(missing_pts, lk_poly, how="left", predicate="within")
-
-    # intersects fallback for border cases
-    still_missing = joined["landkreis_slug"].isna()
-    if int(still_missing.sum()) > 0:
-        joined2 = gpd.sjoin(
-            joined[still_missing].drop(columns=["landkreis_slug", "index_right"], errors="ignore"),
-            lk_poly,
-            how="left",
-            predicate="intersects",
-        )
-        joined.loc[still_missing, "landkreis_slug"] = joined2["landkreis_slug"].values
-
-    # Write back
-    fallback_series = joined["landkreis_slug"].fillna("").astype(str)
-    pts.loc[missing, "kreis_slug"] = pts.loc[missing].index.map(lambda idx: fallback_series.to_dict().get(idx, ""))
-
-    return pts
-
-def build_landkreis_numbering_layers(
-    lk_poly: gpd.GeoDataFrame,
-    centers_slug_to_name: dict,
-    out_base: Path,
-    *,
-    # Thüringen bbox (coarse) – sen zooma göre oynarsın
-    list_x: float = 12.85,
-    list_top_y: float = 51.75,
-    list_step_y: float = -0.065,
-    poly_label_size_hint: int = 12,
-):
-    """
-    Create two GeoJSON layers:
-      (1) Numbers inside Landkreis polygons (representative_point)
-      (2) Right-side list of "N  LandkreisName" as points
-
-    Outputs:
-      - thueringen_landkreis_number_points.geojson
-      - thueringen_landkreis_number_list_points.geojson
-      - thueringen_landkreis_number_map.json (slug -> number + name)
-    """
-
-    # stable order
-    slugs = sorted([str(s) for s in lk_poly["landkreis_slug"].dropna().unique().tolist()])
-    slug_to_num = {slug: i + 1 for i, slug in enumerate(slugs)}
-
-    # -------------- (1) Polygon interior label points --------------
-    poly_points = []
-    for _, r in lk_poly.iterrows():
-        slug = str(r.get("landkreis_slug", "")).strip()
-        if not slug or slug not in slug_to_num:
-            continue
-
         geom = r.geometry
         if geom is None or geom.is_empty:
             continue
+        if geom.geom_type == "Point":
+            centers[ks] = (float(geom.x), float(geom.y))
+        else:
+            # fallback: centroid if needed
+            c = geom.centroid
+            centers[ks] = (float(c.x), float(c.y))
 
-        # representative_point is guaranteed to be inside
-        p = geom.representative_point()
+        if name_col:
+            nm = r.get(name_col, None)
+            if nm is not None:
+                slug_to_name[ks] = str(nm)
 
-        num = int(slug_to_num[slug])
-        name = centers_slug_to_name.get(slug, slug)
+        if number_col:
+            try:
+                slug_to_number[ks] = int(r.get(number_col))
+            except Exception:
+                pass
 
-        poly_points.append(
-            {
-                "landkreis_slug": slug,
-                "landkreis_name": name,
-                "num": num,
-                "label": str(num),
-                "font_size": poly_label_size_hint,
-                "geometry": p,
-            }
-        )
+    if not centers:
+        raise RuntimeError("[FATAL] No centers parsed from centers file.")
 
-    g_poly = gpd.GeoDataFrame(poly_points, geometry="geometry", crs="EPSG:4326")
-    poly_out = out_base / "thueringen_landkreis_number_points.geojson"
-    g_poly.to_file(poly_out, driver="GeoJSON")
-    print(f"[INFO] Wrote Landkreis polygon numbers layer -> {poly_out.name} ({len(g_poly)} points)")
-
-    # -------------- (2) Right-side list points --------------
-    list_points = []
-    y = list_top_y
-    for slug in slugs:
-        num = int(slug_to_num[slug])
-        name = centers_slug_to_name.get(slug, slug)
-        list_points.append(
-            {
-                "landkreis_slug": slug,
-                "landkreis_name": name,
-                "num": num,
-                "label": f"{num}. {name}",
-                "geometry": Point(list_x, y),
-            }
-        )
-        y += list_step_y
-
-    g_list = gpd.GeoDataFrame(list_points, geometry="geometry", crs="EPSG:4326")
-    list_out = out_base / "thueringen_landkreis_number_list_points.geojson"
-    g_list.to_file(list_out, driver="GeoJSON")
-    print(f"[INFO] Wrote Landkreis right-side list layer -> {list_out.name} ({len(g_list)} points)")
-
-    # mapping json (debug + reuse)
-    mapping = {
-        slug: {"num": int(slug_to_num[slug]), "name": centers_slug_to_name.get(slug, slug)}
-        for slug in slugs
-    }
-    map_out = out_base / "thueringen_landkreis_number_map.json"
-    map_out.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[INFO] Wrote Landkreis number mapping -> {map_out.name}")
+    return centers, slug_to_name, slug_to_number
 
 
-def main():
-    print("\n[step2_5] Building Thüringen yearly Landkreis pie INPUTS (polygon fallback + center canonical filter).")
+def load_gadm_l2_thueringen_polys() -> gpd.GeoDataFrame:
+    """
+    Load GADM level-2 polygons for Germany and filter to Thüringen.
+    Uses 'NAME_1'/'NAME_2' in GADM data.
+    """
+    if not GADM_L2_PATH.exists():
+        raise FileNotFoundError(f"[FATAL] GADM L2 file not found: {GADM_L2_PATH}")
 
+    g = gpd.read_file(str(GADM_L2_PATH))
+    if g.empty:
+        raise RuntimeError("[FATAL] GADM L2 file is empty.")
+
+    if g.crs is None:
+        g = g.set_crs("EPSG:4326", allow_override=True)
+
+    # Thüringen can appear as "Thüringen" or "Thueringen"
+    if "NAME_1" not in g.columns or "NAME_2" not in g.columns:
+        raise RuntimeError("[FATAL] GADM L2 schema missing NAME_1/NAME_2.")
+
+    g = g[g["NAME_1"].astype(str).apply(norm).isin({"thuringen", "thueringen"})].copy()
+    if g.empty:
+        raise RuntimeError("[FATAL] No Thüringen polygons found in GADM L2.")
+
+    # Create kreis_slug
+    g["kreis_slug"] = g["NAME_2"].astype(str).apply(norm)
+
+    return g[["NAME_2", "kreis_slug", "geometry"]].copy()
+
+
+def pick_first_nonempty(row, candidates: List[str]) -> Optional[str]:
+    for c in candidates:
+        if c in row and pd.notna(row[c]):
+            s = str(row[c]).strip()
+            if s and s.lower() not in {"nan", "none"}:
+                return s
+    return None
+
+
+KREIS_FIELD_CANDIDATES = [
+    "Landkreis", "landkreis",
+    "kreis", "Kreis",
+    "NAME_2", "name_2",
+    "county",
+    "ADM2", "adm2",
+]
+
+
+def assign_kreis_slug_with_fallback(gdf: gpd.GeoDataFrame, lk_poly: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Assign kreis_slug using:
+      (1) attribute candidates
+      (2) polygon spatial join fallback for missing/dirty cases
+    """
+    gdf = gdf.copy()
+
+    # attribute-based
+    raw_vals = []
+    for _, r in gdf.iterrows():
+        raw_vals.append(pick_first_nonempty(r, KREIS_FIELD_CANDIDATES))
+    gdf["_kreis_raw"] = raw_vals
+    gdf["_kreis_attr_slug"] = gdf["_kreis_raw"].apply(lambda v: norm(v) if v else "")
+
+    # for those still empty -> spatial join
+    need_fallback = gdf["_kreis_attr_slug"].eq("") | gdf["_kreis_attr_slug"].isna()
+    if need_fallback.any():
+        pts = gdf[need_fallback].copy()
+        pts = pts[pts.geometry.notna()].copy()
+        if not pts.empty:
+            if pts.crs is None:
+                pts = pts.set_crs("EPSG:4326", allow_override=True)
+            if lk_poly.crs is None:
+                lk_poly = lk_poly.set_crs("EPSG:4326", allow_override=True)
+
+            joined = gpd.sjoin(
+                pts,
+                lk_poly[["kreis_slug", "geometry"]],
+                how="left",
+                predicate="within",
+            )
+            gdf.loc[joined.index, "_kreis_attr_slug"] = joined["kreis_slug"].fillna("").values
+
+    gdf["kreis_slug"] = gdf["_kreis_attr_slug"].fillna("").astype(str)
+    return gdf
+
+
+# ---------- MAIN ----------
+def main() -> None:
     OUT_BASE.mkdir(parents=True, exist_ok=True)
 
-    if not INPUT_ROOT.exists():
-        raise RuntimeError(f"INPUT_ROOT not found: {INPUT_ROOT}")
+    centers, slug_to_name, slug_to_number = load_thueringen_centers()
+    lk_poly = load_gadm_l2_thueringen_polys()
 
-    centers, slug_to_name = load_thueringen_centers()
-    print(f"[CENTERS] Loaded {len(centers)} Thüringen Landkreis centers from {CENTERS_PATH}")
-
-    lk_poly = load_thueringen_landkreis_polygons()
-
-    # ---- Landkreis numbering system (like step1_3 but for Thüringen Landkreise) ----
-    # Numbers inside polygons + right-side list (to the right of Thüringen map)
-    build_landkreis_numbering_layers(
-        lk_poly=lk_poly,
-        centers_slug_to_name=slug_to_name,
-        out_base=OUT_BASE,
-        list_x=13.1,      # right side (coarse) - adjust in QGIS
-        list_top_y=51.7,  # top of list (coarse)
-        list_step_y=-0.065 # row spacing
-    )
-
-
-    geojson_paths = list(scan_geojsons(INPUT_ROOT))
-    if not geojson_paths:
-        raise RuntimeError(f"No GeoJSON files found under {INPUT_ROOT}")
-
+    # ---- Read all plant points ----
     frames: List[gpd.GeoDataFrame] = []
 
-    # ---- Parse Thüringen GeoJSONs into one table ----
-    for p in geojson_paths:
+    for p in scan_geojsons(INPUT_ROOT):
         try:
-            g = gpd.read_file(p)
-            if g.empty or "geometry" not in g.columns:
+            g = gpd.read_file(str(p))
+            if g.empty:
                 continue
             if g.crs is None:
                 g = g.set_crs("EPSG:4326", allow_override=True)
@@ -554,50 +486,81 @@ def main():
     print("[CHECK] year_bin_slug counts:")
     print(gdf["year_bin_slug"].value_counts(dropna=False))
 
-    # ---- Aggregate per (kreis_slug, year-bin) into pie input points ----
-    per_bin_rows: Dict[str, List[dict]] = {}
-    global_totals: List[float] = []
+    # ----------------------------------------------------------
+    # A) PERIOD sums per (kreis_slug, year_bin_slug)
+    # ----------------------------------------------------------
+    period_by_kreis_bin: Dict[Tuple[str, str], dict] = {}
 
     for (yslug, kreis_slug), grp in gdf.groupby(["year_bin_slug", "kreis_slug"], dropna=False):
-        label = str(grp["year_bin_label"].iloc[0])
-
-        parts = {f: 0.0 for f in PRIORITY_FIELDNAMES.values()}
-        others = 0.0
-
+        parts = {f: 0.0 for f in PART_FIELDS}
         for _, r in grp.iterrows():
             cat = r["energy_norm"]
             pkw = float(r["_power"])
             if cat in PRIORITY_FIELDNAMES:
                 parts[PRIORITY_FIELDNAMES[cat]] += pkw
             else:
-                others += pkw
+                parts[OTHERS_FIELD] += pkw
 
-        parts[OTHERS_FIELD] = others
-        parts["total_kw"] = float(sum(parts.values()))
+        parts["total_kw"] = float(sum(parts[f] for f in PART_FIELDS))
+        period_by_kreis_bin[(kreis_slug, yslug)] = parts
 
-        cx, cy = centers[kreis_slug]
+    # ----------------------------------------------------------
+    # B) CUMULATIVE per Landkreis across bins -> per_bin_rows_cum
+    #    (This is the key fix: pies grow over time)
+    # ----------------------------------------------------------
+    per_bin_rows: Dict[str, List[dict]] = {}
+    global_totals: List[float] = []
 
-        row = {
-            "state_name": STATE_NAME,
-            "state_slug": STATE_SLUG,
-            "state_number": STATE_NUMBER,
+    # deterministic kreis order for stable output (nice for debugging)
+    kreis_list = sorted(list(centers.keys()))
 
-            # IMPORTANT: write BOTH keys to avoid later schema mismatches
-            "kreis_slug": kreis_slug,
-            "kreis_key": kreis_slug,   # for step2_6 compatibility
-            "kreis_name": slug_to_name.get(kreis_slug, kreis_slug),
+    cumulative_by_kreis: Dict[str, dict] = {
+        ks: {f: 0.0 for f in PART_FIELDS}
+        for ks in kreis_list
+    }
 
-            "year_bin_slug": yslug,
-            "year_bin_label": label,
-            "_x": float(cx),
-            "_y": float(cy),
-            **parts,
-        }
+    for slug, _label, *_ in YEAR_BINS:
+        rows_out: List[dict] = []
 
-        per_bin_rows.setdefault(yslug, []).append(row)
-        global_totals.append(parts["total_kw"])
+        for ks in kreis_list:
+            inc = period_by_kreis_bin.get((ks, slug))
+            if inc:
+                for f in PART_FIELDS:
+                    cumulative_by_kreis[ks][f] += float(inc.get(f, 0.0) or 0.0)
 
-    # ---- Global sizing meta ----
+            total_kw = float(sum(cumulative_by_kreis[ks][f] for f in PART_FIELDS))
+            if total_kw <= 0:
+                continue
+
+            cx, cy = centers[ks]
+
+            row = {
+                "state_name": STATE_NAME,
+                "state_slug": STATE_SLUG,
+                "state_number": STATE_NUMBER,
+
+                # IMPORTANT: keep BOTH keys for step2_6 compatibility
+                "kreis_slug": ks,
+                "kreis_key": ks,
+                "kreis_name": slug_to_name.get(ks, ks),
+
+                "year_bin_slug": slug,
+                "year_bin_label": BIN_LABEL[slug],
+
+                "_x": float(cx),
+                "_y": float(cy),
+
+                **{f: float(cumulative_by_kreis[ks][f]) for f in PART_FIELDS},
+                "total_kw": total_kw,
+            }
+
+            rows_out.append(row)
+            global_totals.append(total_kw)
+
+        if rows_out:
+            per_bin_rows[slug] = rows_out
+
+    # ---- Global sizing meta (based on CUMULATIVE totals) ----
     if global_totals:
         gmin = float(min(global_totals))
         gmax = float(max(global_totals))
@@ -606,10 +569,10 @@ def main():
             encoding="utf-8",
         )
         print(
-            f"[GLOBAL SCALE] Thüringen landkreis pies: min={gmin:,.2f} kW, max={gmax:,.2f} kW -> {GLOBAL_META.name}"
+            f"[GLOBAL SCALE] Thüringen landkreis pies (CUM): min={gmin:,.2f} kW, max={gmax:,.2f} kW -> {GLOBAL_META.name}"
         )
 
-    # ---- Write per-bin input points ----
+    # ---- Write per-bin CUMULATIVE input points ----
     for slug, _, *_ in YEAR_BINS:
         rows = per_bin_rows.get(slug, [])
         if not rows:
@@ -626,35 +589,25 @@ def main():
         ).drop(columns=["_x", "_y"])
 
         out_gdf.to_file(out_path, driver="GeoJSON")
-        print(f"[BIN INPUT] wrote {out_path.name} (features={len(out_gdf)})")
+        print(f"[BIN INPUT CUM] wrote {out_path.name} (features={len(out_gdf)})")
 
-    # ---- Thüringen totals per year-bin (cumulative) + stacked row chart ----
-    PART_FIELDS = ["pv_kw", "wind_kw", "hydro_kw", "battery_kw", "biogas_kw", "others_kw"]
+    # ----------------------------------------------------------
+    # C) Thüringen totals per bin (CUMULATIVE already) + ROW chart + guides + frame + headings
+    # ----------------------------------------------------------
+    yearly_totals: List[dict] = []
+    bin_energy_totals: Dict[str, dict] = {}
 
-    # 1) Per-bin (non-cumulative) totals
-    per_bin_energy: Dict[str, dict] = {}
-    for slug, _, *_ in YEAR_BINS:
+    for slug, _label, *_ in YEAR_BINS:
         rows = per_bin_rows.get(slug, [])
         if not rows:
             continue
+
         sums = {f: 0.0 for f in PART_FIELDS}
         for r in rows:
             for f in PART_FIELDS:
                 sums[f] += float(r.get(f, 0.0) or 0.0)
-        per_bin_energy[slug] = sums
 
-    # 2) Convert to cumulative
-    yearly_totals = []
-    bin_energy_totals = {}
-    cumulative = {f: 0.0 for f in PART_FIELDS}
-
-    for slug, _, *_ in YEAR_BINS:
-        if slug not in per_bin_energy:
-            continue
-        for f in PART_FIELDS:
-            cumulative[f] += float(per_bin_energy[slug].get(f, 0.0) or 0.0)
-
-        total_kw = float(sum(cumulative.values()))
+        total_kw = float(sum(sums.values()))
         if total_kw <= 0:
             continue
 
@@ -663,7 +616,7 @@ def main():
             "year_bin_label": BIN_LABEL[slug],
             "total_kw": total_kw,
         })
-        bin_energy_totals[slug] = dict(cumulative)
+        bin_energy_totals[slug] = sums
 
     if yearly_totals:
         totals_json = OUT_BASE / "thueringen_landkreis_yearly_totals.json"
@@ -674,6 +627,7 @@ def main():
         print(f"[INFO] Wrote yearly totals JSON (cumulative) -> {totals_json.name}")
 
         # ---- ROW CHART (horizontal cumulative chart) ----
+        # (Keep these coarse; you can tune in QGIS later.)
         CHART_BASE_LON = 8.5
         CHART_BASE_LAT = 50.25
         MAX_BAR_WIDTH  = 1.1
@@ -683,12 +637,16 @@ def main():
         YEAR_LABEL_LON  = CHART_BASE_LON - 0.12
         VALUE_LABEL_LON = 9.75
 
+        # guides should stop before the numbers column
+        GUIDE_END_LON = VALUE_LABEL_LON - 0.10
+
         vals = [info["total_kw"] for info in yearly_totals if info["total_kw"] > 0]
         max_total = float(max(vals)) if vals else 0.0
 
-        chart_features = []
-        STACK_ORDER = ["hydro_kw", "biogas_kw", "pv_kw", "wind_kw", "others_kw", "battery_kw"]
+        chart_features: List[dict] = []
+        guide_features: List[dict] = []
 
+        # reversed => oldest at top or bottom? (same pattern as your other scripts)
         for idx, info in enumerate(reversed(yearly_totals)):
             slug  = info["year_bin_slug"]
             label = info["year_bin_label"]
@@ -707,6 +665,7 @@ def main():
             bar_ratio = max(0.0, min(1.0, bar_ratio))
             bar_width_total = bar_ratio * MAX_BAR_WIDTH
 
+            # stacked segments
             for key in STACK_ORDER:
                 seg_val = float(energy_sums.get(key, 0.0) or 0.0)
                 if seg_val <= 0:
@@ -733,6 +692,17 @@ def main():
                 })
                 x_base = x1
 
+            # GUIDE LINE (bar end -> numbers column)
+            start_x = x_base + 0.01
+            end_x = GUIDE_END_LON
+            if start_x < end_x:
+                guide_features.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": label,
+                    "kind": "guide",
+                    "geometry": LineString([(start_x, y_center), (end_x, y_center)])
+                })
+
             # Year label point
             chart_features.append({
                 "year_bin_slug": slug,
@@ -757,36 +727,46 @@ def main():
                 "geometry": Point(VALUE_LABEL_LON, y_center)
             })
 
-        # Title point (for QGIS label rule)
-        title_point = Point(
-            CHART_BASE_LON + MAX_BAR_WIDTH / 2.0,
-            CHART_BASE_LAT + (len(yearly_totals) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
-        )
+        # Title row y
+        title_y = CHART_BASE_LAT + (len(yearly_totals) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
+
+        # Title point (no unit inside title)
         chart_features.append({
             "year_bin_slug": "title",
-            "year_bin_label": "Thüringen - Cumulative Installed Power (MW)",
+            "year_bin_label": "Thüringen - Cumulative Installed Power",
             "energy_type": "others_kw",
             "energy_kw": 0.0,
             "total_kw": 0.0,
             "label_anchor": 0,
             "value_anchor": 0,
-            "geometry": title_point
+            "geometry": Point(CHART_BASE_LON + MAX_BAR_WIDTH / 2.0, title_y)
         })
 
-        # Headings (coarse)
+        # Unit point aligned with numbers column, same row as title (step1_3 style)
+        chart_features.append({
+            "year_bin_slug": "unit",
+            "year_bin_label": "MW",
+            "energy_type": "others_kw",
+            "energy_kw": 0.0,
+            "total_kw": 0.0,
+            "label_anchor": 0,
+            "value_anchor": 0,
+            "geometry": Point(VALUE_LABEL_LON, title_y)
+        })
+
+        # ---- Headings (coarse, per bin group) ----
         HEADING_X_MAIN = 10.8
         HEADING_Y_MAIN = 51.7
         HEADING_X_SUB  = 11.4
         HEADING_Y_SUB  = 51.6
 
-        heading_features = []
         for info in yearly_totals:
             slug = info["year_bin_slug"]
             label = info["year_bin_label"]
             cum_total_kw = float(info["total_kw"])
             cum_total_mw = cum_total_kw / 1000.0
 
-            heading_features.append({
+            chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": f"{label}",
                 "energy_type": "heading_main",
@@ -796,9 +776,9 @@ def main():
                 "value_anchor": 1,
                 "geometry": Point(HEADING_X_MAIN, HEADING_Y_MAIN),
             })
-            heading_features.append({
+            chart_features.append({
                 "year_bin_slug": slug,
-                "year_bin_label": f"Cumulative Installed Power: {cum_total_mw:,.2f} MW",
+                "year_bin_label": f"Installed Power: {cum_total_mw:,.1f} MW",
                 "energy_type": "heading_sub",
                 "energy_kw": 0.0,
                 "total_kw": cum_total_kw,
@@ -807,12 +787,207 @@ def main():
                 "geometry": Point(HEADING_X_SUB, HEADING_Y_SUB),
             })
 
-        chart_features.extend(heading_features)
-
+        # ---- Write chart polygons+points ----
         chart_gdf = gpd.GeoDataFrame(chart_features, geometry="geometry", crs="EPSG:4326")
         chart_path = OUT_BASE / "thueringen_landkreis_yearly_totals_chart.geojson"
         chart_gdf.to_file(chart_path, driver="GeoJSON")
         print(f"[INFO] Wrote Thüringen landkreis cumulative ROW chart -> {chart_path.name} ({len(chart_gdf)} features)")
+
+        # ---- Write guides (separate file) ----
+        if guide_features:
+            guides_gdf = gpd.GeoDataFrame(guide_features, geometry="geometry", crs="EPSG:4326")
+            guides_path = OUT_BASE / "thueringen_landkreis_yearly_totals_chart_guides.geojson"
+            guides_gdf.to_file(guides_path, driver="GeoJSON")
+            print(f"[INFO] Wrote Thüringen row chart guide lines -> {guides_path.name} ({len(guides_gdf)} lines)")
+
+        # ---- Frame (single rectangle, separate file) ----
+        # Include year labels on the left + number column on the right
+        frame_left   = YEAR_LABEL_LON - 0.10
+        frame_right  = VALUE_LABEL_LON + 0.10
+        frame_bottom = CHART_BASE_LAT - 0.02
+        frame_top    = title_y + 0.05
+
+        frame_poly = Polygon([
+            (frame_left,  frame_bottom),
+            (frame_right, frame_bottom),
+            (frame_right, frame_top),
+            (frame_left,  frame_top),
+            (frame_left,  frame_bottom),
+        ])
+
+        frame_gdf = gpd.GeoDataFrame(
+            [{"kind": "frame", "chart": "row", "unit": "MW"}],
+            geometry=[frame_poly],
+            crs="EPSG:4326",
+        )
+        frame_path = OUT_BASE / "thueringen_landkreis_yearly_totals_chart_frame.geojson"
+        frame_gdf.to_file(frame_path, driver="GeoJSON")
+        print(f"[INFO] Wrote Thüringen row chart frame -> {frame_path.name}")
+
+        
+        # ---- COLUMN CHART (23 Landkreis, stacked, cumulative) ----
+        # Tune these in QGIS if needed; these are just sane defaults.
+        COL_BASE_LON = 12.80
+        COL_BASE_LAT = 50.25
+        COL_W        = 0.060
+        COL_GAP      = 0.025
+        COL_MAX_H    = 1.00
+
+        LABEL_DY     = 0.030   # below baseline
+        VALUE_DY     = 0.020   # above bar top
+
+        # Determine deterministic Landkreis order for 23 columns
+        kreis_slugs = sorted(list(centers.keys()))
+        if slug_to_number:
+            kreis_slugs = sorted(
+                kreis_slugs,
+                key=lambda s: (slug_to_number.get(s, 999), s),
+            )
+
+        max_kreis_total_kw = float(max(global_totals)) if global_totals else 1.0
+        col_meta_path = OUT_BASE / "thu_landkreis_totals_columnChart_meta.json"
+        col_meta_path.write_text(
+            json.dumps({"max_kreis_total_kw": max_kreis_total_kw}, indent=2),
+            encoding="utf-8",
+        )
+
+        
+        bars_rows: List[dict] = []
+        label_rows: List[dict] = []
+
+        TITLE_SLUG = "landkreis_title"
+
+        label_rows.append({
+            "year_bin_slug": TITLE_SLUG,
+            "year_bin_label": "Thüringen - Cumulative Installed Power by Landkreis(MW)",
+            "kind": "title",
+            "landkreis_slug": "",
+            "landkreis_number": 0,
+            "total_kw": 0.0,
+            "geometry": Point(COL_BASE_LON + 0.85, COL_BASE_LAT + COL_MAX_H + 0.05),
+        })
+
+        for info in yearly_totals:
+            slug = info["year_bin_slug"]
+            label = info["year_bin_label"]
+            rows = per_bin_rows.get(slug, [])
+            if not rows:
+                continue
+
+            # index rows by kreis
+            by_kreis = {r["kreis_slug"]: r for r in rows if r.get("kreis_slug")}
+
+            for idx, ks in enumerate(kreis_slugs):
+                r = by_kreis.get(ks)
+                if r is None:
+                    continue
+
+                total_kw = float(r.get("total_kw", 0.0) or 0.0)
+                if total_kw <= 0:
+                    continue
+
+                lk_no = int(slug_to_number.get(ks, idx + 1))
+                x0 = COL_BASE_LON + idx * (COL_W + COL_GAP)
+                x1 = x0 + COL_W
+                y  = COL_BASE_LAT
+
+                # stacked segments
+                for f in STACK_ORDER:
+                    v = float(r.get(f, 0.0) or 0.0)
+                    if v <= 0:
+                        continue
+
+                    h = (v / max_kreis_total_kw) * COL_MAX_H
+                    y1 = y + h
+
+                    bars_rows.append({
+                        "state_name": STATE_NAME,
+                        "state_slug": STATE_SLUG,
+                        "state_number": STATE_NUMBER,
+
+                        "year_bin_slug": slug,
+                        "year_bin_label": label,
+
+                        "landkreis_slug": ks,
+                        "landkreis_number": lk_no,
+                        "energy_type": f,
+
+                        "value_kw": v,
+                        "total_kw": total_kw,
+
+                        "geometry": Polygon([(x0, y), (x1, y), (x1, y1), (x0, y1)]),
+                    })
+
+                    y = y1
+
+                cx = (x0 + x1) / 2.0
+
+                # Landkreis number label
+                label_rows.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": label,
+                    "kind": "landkreis_label",
+                    "landkreis_slug": ks,
+                    "landkreis_number": lk_no,
+                    "total_kw": total_kw,
+                    "geometry": Point(cx, COL_BASE_LAT - LABEL_DY),
+                })
+
+                # value label (top)
+                bar_h = (total_kw / max_kreis_total_kw) * COL_MAX_H
+                label_rows.append({
+                    "year_bin_slug": slug,
+                    "year_bin_label": label,
+                    "kind": "value_label",
+                    "landkreis_slug": ks,
+                    "landkreis_number": lk_no,
+                    "total_kw": total_kw,
+                    "geometry": Point(cx, COL_BASE_LAT + bar_h + VALUE_DY),
+                })
+
+        if bars_rows:
+            bars_path = OUT_BASE / "thu_landkreis_totals_columnChart_bars.geojson"
+
+            bars_gdf = gpd.GeoDataFrame(bars_rows, crs="EPSG:4326")
+            bars_gdf = bars_gdf.set_geometry("geometry")
+
+            bars_gdf.to_file(bars_path, driver="GeoJSON")
+            print(f"[COLUMN BARS] wrote {bars_path.name} (features={len(bars_gdf)})")
+
+        if label_rows:
+            labels_path = OUT_BASE / "thu_landkreis_totals_columnChart_labels.geojson"
+
+            labels_gdf = gpd.GeoDataFrame(label_rows, crs="EPSG:4326")
+            labels_gdf = labels_gdf.set_geometry("geometry")
+
+            labels_gdf.to_file(labels_path, driver="GeoJSON")
+            print(f"[COLUMN LABELS] wrote {labels_path.name} (features={len(labels_gdf)})")
+
+
+        # ---- COLUMN CHART FRAME (single rectangle, separate file) ----
+        total_width = len(kreis_slugs) * COL_W + (len(kreis_slugs) - 1) * COL_GAP
+
+        col_frame_left = COL_BASE_LON - 0.08
+        col_frame_right = COL_BASE_LON + total_width + 0.08
+        col_frame_bottom = COL_BASE_LAT - 0.08   # includes x labels
+        col_frame_top = COL_BASE_LAT + COL_MAX_H + 0.12  # includes title
+
+        col_frame_poly = Polygon([
+            (col_frame_left, col_frame_bottom),
+            (col_frame_right, col_frame_bottom),
+            (col_frame_right, col_frame_top),
+            (col_frame_left, col_frame_top),
+            (col_frame_left, col_frame_bottom),
+        ])
+
+        col_frame_gdf = gpd.GeoDataFrame(
+            [{"kind": "frame", "chart": "column", "unit": "MW"}],
+            geometry=[col_frame_poly],
+            crs="EPSG:4326",
+        )
+        col_frame_path = OUT_BASE / "thu_landkreis_totals_columnChart_frame.geojson"
+        col_frame_gdf.to_file(col_frame_path, driver="GeoJSON")
+        print(f"[INFO] Wrote Thüringen column chart frame -> {col_frame_path.name}")
 
     # ---- ENERGY TYPE LEGEND (fixed positions) ----
     LEG_BASE_LON   = 8.5
