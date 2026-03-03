@@ -1,4 +1,4 @@
-# step15_generate_geojson_by_state_4checks.py
+# step21_generate_geojson_by_state_4checks.py
 # Updated: add 4th check -> entry must match a Landkreis (GADM L2) polygon as well.
 #
 # 4th check logic is inspired by step17_generate_geojson_by_state_landkreis.py:

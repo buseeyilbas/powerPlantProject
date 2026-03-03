@@ -1,6 +1,6 @@
 
 """
-step25_filter_json_by_landkreis.py
+step19_filter_json_by_landkreis.py
 
 Group entries by Landkreis using GADM L2 polygons and save raw JSONs.
 We enforce STATE-level "3 checks" to avoid misclassified entries:

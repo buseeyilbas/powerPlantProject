@@ -1,7 +1,7 @@
 """
-step22_filter_json_by_state_4checks_yearly.py
+step16_filter_json_by_state_4checks_yearly.py
 
-Like step20, but split outputs by commissioning year (DATE_FIELD).
+split outputs by commissioning year (DATE_FIELD).
 Output structure (keeps original filenames):
   <OUTPUT_ROOT>/<PrettyState>/<YYYY>/<original_filename>.json
 

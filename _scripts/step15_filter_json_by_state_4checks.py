@@ -1,21 +1,21 @@
 
-"""
-step21_filter_json_by_state_4checks.py
 
-Filter raw JSON entries into per-state folders using a strict "4 checks" consistency rule:
-  1) Point-in-polygon check against state polygons (from POLYGON_STATES_PATH).
-  2) 'Bundesland' numeric code mapped to canonical state name.
-  3) 'Gemeindeschluessel' 2-digit prefix mapped to canonical state name.
-  4) Point-in-polygon check against Landkreis polygons (from GADM_L2_PATH).
+# step15_filter_json_by_state_4checks.py
 
-Only entries that pass all four checks (polygon == Bundesland == Gemeindeschluessel) are saved.
-Output structure (keeps original filenames per state, like step12 style):
-  <OUTPUT_BASE>/<PrettyState>/<original_filename>.json
+# Filter raw JSON entries into per-state folders using a strict "4 checks" consistency rule:
+#   1) Point-in-polygon check against state polygons (from POLYGON_STATES_PATH).
+#   2) 'Bundesland' numeric code mapped to canonical state name.
+#   3) 'Gemeindeschluessel' 2-digit prefix mapped to canonical state name.
+#   4) Point-in-polygon check against Landkreis polygons (from GADM_L2_PATH).
 
-Notes:
-- Coordinates must be under 'Laengengrad' and 'Breitengrad' (comma or dot decimals accepted).
-- State polygons GeoJSON must have features with properties.name and Polygon/MultiPolygon geometries.
-"""
+# Only entries that pass all four checks (polygon == Bundesland == Gemeindeschluessel) are saved.
+# Output structure (keeps original filenames per state, like step12 style):
+#   <OUTPUT_BASE>/<PrettyState>/<original_filename>.json
+
+# Notes:
+# - Coordinates must be under 'Laengengrad' and 'Breitengrad' (comma or dot decimals accepted).
+# - State polygons GeoJSON must have features with properties.name and Polygon/MultiPolygon geometries.
+
 
 import os
 import json

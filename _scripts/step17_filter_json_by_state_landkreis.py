@@ -1,6 +1,6 @@
 
 """
-step23_filter_json_by_state_landkreis.py
+step17_filter_json_by_state_landkreis.py
 
 Assign entries to (State, Landkreis) using GADM Level-2 polygons and save raw JSONs.
 We still enforce the state-level "3 checks":

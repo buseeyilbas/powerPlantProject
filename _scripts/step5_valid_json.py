@@ -3,7 +3,6 @@
 import os
 import json
 
-# Make these module-level constants so tests can monkeypatch them
 input_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\json"
 output_folder = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\valid_json"
 

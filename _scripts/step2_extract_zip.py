@@ -11,7 +11,7 @@ def extract_all_zips(input_dir: str, output_dir: str) -> None:
     if not os.path.exists(input_dir):
         print(f"Input folder does not exist: {input_dir}")
         return
-
+    
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 

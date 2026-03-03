@@ -1,4 +1,4 @@
-# 6_filter_json_by_active_status.py
+# step6a_filter_json_by_active_status.py
 # This script filters all JSON files from "valid_json" and keeps only active power plants.
 # Active plants are defined as entries where "EinheitBetriebsstatus" == "35" (in Betrieb).
 # For each file, the script reports how many active and inactive units exist.

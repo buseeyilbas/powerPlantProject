@@ -1,5 +1,5 @@
 
-# Filename: step7_analyze_active_jsons_2ndfiltering.py
+# Filename: step6b_analyze_active_jsons_2ndfiltering.py
 # Purpose:
 #   Second-stage analysis for ACTIVE JSONs, but ONLY for entries that pass the strict
 #   "4 checks" gate (copied from step15/step16 logic):
@@ -44,7 +44,7 @@ from shapely.prepared import prep
 
 
 # =========================
-# === USER CONFIG (EDIT) ===
+# ===== USER CONFIG  ======
 # =========================
 
 INPUT_FOLDER = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\active_json"

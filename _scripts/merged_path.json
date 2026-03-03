@@ -1,3 +1,5 @@
+
+
 {
   "download": {
     "enabled": false,
@@ -10,11 +12,22 @@
     "validate_xml": false,
     "xml_to_json": false,
     "valid_json": false,
-    "filter_active": false,
 
-    "filtering": true,
-    "geojson": true,
-    "post_filtering_4checks": true
+    "filter_active": false,
+    "analyze_active_second_stage": true,
+
+    "list_states": false,
+    "list_energy_types": false,
+    "list_years": false,
+
+    "filtering": false,
+
+    "geojson_all_germany": false,
+    "post_filtering_4checks": false,
+    "geojson": false,
+
+    "data_quality": false,
+    "match_anlagen_einheiten": false
   },
 
   "paths": {
@@ -47,11 +60,14 @@
     "geojson_by_state_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_state_landkreis_yearly",
 
     "geojson_by_landkreis_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_landkreis",
-    "geojson_by_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_landkreis_yearly"
+    "geojson_by_landkreis_yearly_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/by_landkreis_yearly",
+
+    "step6b_output_folder": "C:/Users/jo73vure/Desktop/powerPlantProject/data/exports_step6b_analysis"
   },
 
   "outputs": {
-    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany_4_checks.geojson"
+    "all_points_geojson": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/all_germany_4_checks.geojson",
+    "all_points_summary_json": "C:/Users/jo73vure/Desktop/powerPlantProject/data/geojson/_consistency_summary.json"
   },
 
   "state_3checks": {
@@ -70,7 +86,7 @@
     "2495",
     "2496",
     "2497",
-    "2498", 
+    "2498",
     "2957",
     "2958"
   ],
@@ -93,8 +109,6 @@
     "15": "Sachsen-Anhalt",
     "16": "Thüringen"
   },
-
-  
 
   "date_fields": {
     "commissioning": "Inbetriebnahmedatum"

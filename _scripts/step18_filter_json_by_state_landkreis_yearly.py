@@ -1,6 +1,6 @@
 
 """
-step24_filter_json_by_state_landkreis_yearly.py
+step18_filter_json_by_state_landkreis_yearly.py
 
 Same as step22 but split by commissioning year (DATE_FIELD).
 State-level "3 checks" are enforced (polygon STATE == Bundesland code == GS prefix).

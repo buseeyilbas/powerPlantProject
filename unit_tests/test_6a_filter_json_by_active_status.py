@@ -1,6 +1,6 @@
-# test_6_filter_json_by_active_status.py
+# test_6a_filter_json_by_active_status.py
 """
-Unit tests for step6_filter_json_by_active_status.py
+Unit tests for step6a_filter_json_by_active_status.py
 
 Covers:
 1) Filtering logic for active/inactive entries.
@@ -14,7 +14,7 @@ import os
 import json
 from pathlib import Path
 import pytest
-import step6_filter_json_by_active_status as filter_active
+import step6a_filter_json_by_active_status as filter_active
 
 
 # ---------- Helper utilities ----------

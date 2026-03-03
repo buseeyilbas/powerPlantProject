@@ -1,5 +1,5 @@
 """
-step26_filter_json_by_landkreis_yearly.py
+step20_filter_json_by_landkreis_yearly.py
 
 BIREBIR step24_filter_json_by_state_landkreis_yearly ile ayni mantik.
 TEK FARK:

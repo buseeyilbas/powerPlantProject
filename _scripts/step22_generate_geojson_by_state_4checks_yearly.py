@@ -1,4 +1,4 @@
-# step16_generate_geojson_by_state_3checks_yearly.py
+# step22_generate_geojson_by_state_3checks_yearly.py
 # Updated: add 4th check -> entry must match a Landkreis (GADM L2) polygon as well.
 
 import os

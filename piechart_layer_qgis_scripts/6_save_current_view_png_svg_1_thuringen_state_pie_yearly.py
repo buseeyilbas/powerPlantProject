@@ -1,4 +1,4 @@
-# Filename: 4_save_current_view_png_svg.py
+# Filename: 6_save_current_view_png_svg_1_thuringen_state_pie_yearly.py
 # Purpose : Save current map canvas as ultra-HQ PNG + SVG using a user-provided base filename,
 #           with a timestamp suffix (YYYYMMDD_HHMMSS). No layer-name logic.
 
