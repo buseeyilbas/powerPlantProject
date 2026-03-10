@@ -14,6 +14,7 @@ from pathlib import Path
 
 SCRIPTS_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\scripts"
 
+
 # Ensure we can import modules from the scripts directory
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
