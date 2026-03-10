@@ -11,11 +11,17 @@ Covers:
 - Preserving filenames and writing correct filtered content
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from pathlib import Path
 import json
 import pytest
 
-import step12_filter_json_by_state_gemeindeschluessel as mod  # module under test
+from scripts import step12_filter_json_by_state_gemeindeschluessel as mod  # module under test
 
 
 # ---------- helpers ----------

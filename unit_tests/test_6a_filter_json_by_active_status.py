@@ -10,11 +10,17 @@ Covers:
 5) is_active() helper correctness.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import os
 import json
 from pathlib import Path
 import pytest
-import step6a_filter_json_by_active_status as filter_active
+from scripts import step6a_filter_json_by_active_status as filter_active
 
 
 # ---------- Helper utilities ----------

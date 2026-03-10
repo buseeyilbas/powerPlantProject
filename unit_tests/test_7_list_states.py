@@ -8,12 +8,19 @@ Covers:
 3) Behavior with empty folder (no JSON files).
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
 import json
 from pathlib import Path
 import pytest
 
 # ✅ standardized alias
-import step7_list_states as list_states
+from scripts import step7_list_states as list_states
 
 
 def test_list_state_codes_basic(tmp_path, capsys):

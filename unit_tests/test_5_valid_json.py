@@ -4,6 +4,12 @@ Unit tests for step5_valid_json module.
 Covers both is_valid() and file-level processing logic.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 import sys
 import types
@@ -11,7 +17,7 @@ from pathlib import Path
 import pytest
 
 # ✅ standardized alias import
-import step5_valid_json as valid_json
+from scripts import step5_valid_json as valid_json
 
 
 # ---------- Tests for is_valid ----------

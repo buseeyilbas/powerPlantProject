@@ -9,12 +9,18 @@ Covers:
 4) Year extraction logic under various formats.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 from pathlib import Path
 import pytest
 
 # ✅ standardized alias
-import step9_list_years as list_years
+from scripts import step9_list_years as list_years
 
 
 def test_list_installation_years_basic(tmp_path, capsys):

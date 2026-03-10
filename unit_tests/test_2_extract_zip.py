@@ -12,11 +12,17 @@ We exercise these behaviors:
 7) Progress messages include "Extracting ..." and "Done extracting".
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import os
 import zipfile
 from pathlib import Path
 
-import step2_extract_zip as extract_zip  # imported via conftest.py sys.path edit
+from scripts import step2_extract_zip as extract_zip  # imported via conftest.py sys.path edit
 
 
 # Test case for input directory does not exist

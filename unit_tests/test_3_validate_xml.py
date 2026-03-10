@@ -4,6 +4,12 @@ Unit tests for step3_validate_xml module.
 Tests XML validation and selective copying behavior.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -11,7 +17,7 @@ import pytest
 import shutil
 
 # ✅ standardized alias import
-import step3_validate_xml as validate_xml
+from scripts import step3_validate_xml as validate_xml
 
 
 def test_is_valid_xml_true_and_false(tmp_path, capsys):

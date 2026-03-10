@@ -5,13 +5,17 @@ We mock 'requests.get' to avoid real network calls and assert filesystem effects
 """
 
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import requests  # only for HTTPError type
+import pytest
+import requests
 
-import step1_download_mastr as download_mastr
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
+from scripts import step1_download_mastr as download_mastr
 
 class FakeResponse:
     """A lightweight fake of requests.Response that supports the context manager protocol."""

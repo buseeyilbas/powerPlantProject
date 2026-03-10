@@ -4,12 +4,18 @@ Unit tests for step4_xml_to_json module.
 Tests conversion from XML files to JSON format.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 from pathlib import Path
 import pytest
 
 # ✅ standardized alias import
-import step4_xml_to_json as xml_to_json
+from scripts import step4_xml_to_json as xml_to_json
 
 
 def test_xml_file_to_json_valid_and_invalid(tmp_path, capsys):

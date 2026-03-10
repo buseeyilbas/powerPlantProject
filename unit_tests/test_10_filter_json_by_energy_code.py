@@ -11,12 +11,18 @@ Covers:
 6) Using a custom energy_key works (not just 'Energietraeger').
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 from pathlib import Path
 
 import pytest
 
-import step10_filter_json_by_energy_code as mod  # module under test
+from scripts import step10_filter_json_by_energy_code as mod  # module under test
 
 
 def write_json(path: Path, data) -> None:

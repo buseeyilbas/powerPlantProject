@@ -8,6 +8,12 @@ Covers:
 3) Graceful skipping of invalid JSON files.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 from pathlib import Path
 import builtins
@@ -15,7 +21,7 @@ import io
 import pytest
 
 # ✅ standardized alias
-import step8_list_energy_types as list_energy_types
+from scripts import step8_list_energy_types as list_energy_types
 
 
 def test_list_energy_codes_basic(tmp_path, capsys):

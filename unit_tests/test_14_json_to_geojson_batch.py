@@ -8,13 +8,19 @@ Covers:
 3) convert_all_germany_with_three_checks(): end-to-end with a tiny polygon set,
    counting consistent features, mismatches, no-polygon matches, and handling bad JSON.
 """
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 
 import json
 from pathlib import Path
 import pytest
 
 # Module under test (matches your script API)
-import step14_json_to_geojson_batch as batch
+from scripts import step14_json_to_geojson_batch as batch
 
 
 def rjson(path: Path):

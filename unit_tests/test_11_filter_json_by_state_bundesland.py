@@ -12,11 +12,17 @@ Covers:
 7) Prints progress lines ("Processing" and "Saved") for traceability.
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from pathlib import Path
 import json
 import pytest
 
-import step11_filter_json_by_state_bundesland as mod  # module under test
+from scripts import step11_filter_json_by_state_bundesland as mod  # module under test
 
 
 # ---------- helpers ----------
