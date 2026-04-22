@@ -11,14 +11,31 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Folder containing PNG images
 PNG_FOLDER = Path(
-    r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\2_statewise_landkreis_pie_yearly"
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\2_statewise_landkreis_pie_yearly\germany_statewiseLandkreisPie_yearly"
 )
 
-# Output GIF file
-OUTPUT_GIF = PNG_FOLDER / "landkreis_piecharts_statewise_gif.gif"
+OUTPUT_FOLDER_1 = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\2_statewise_landkreis_pie_yearly\1sec_gif"
+)
+
+OUTPUT_FOLDER_2 = Path(
+    r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\2_statewise_landkreis_pie_yearly\2sec_gif"
+)
 
 # Frame duration in milliseconds
-FRAME_DURATION_MS = 2000  # 2 seconds per frame
+FRAME_DURATION_MS = 1000 
+
+
+if FRAME_DURATION_MS == 1000:
+    print("[INFO] Frame duration set to 1 second per frame.")
+    # Output GIF file
+    OUTPUT_GIF = OUTPUT_FOLDER_1 / "landkreis_piecharts_statewise_gif_1s.gif"
+
+elif FRAME_DURATION_MS == 2000:
+    print("[INFO] Frame duration set to 2 seconds per frame.")
+    # Output GIF file
+    OUTPUT_GIF = OUTPUT_FOLDER_2 / "landkreis_piecharts_statewise_gif_2s.gif"
+
 
 def pngs_to_gif(png_folder: Path, output_gif: str, duration: int) -> None:
     png_files = sorted(png_folder.glob("*.png"))

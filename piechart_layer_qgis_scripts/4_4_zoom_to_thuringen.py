@@ -11,9 +11,9 @@ from qgis.core import (
     QgsProject
 )
 
-# Germany extent in WGS84
-extent_wgs84 = QgsRectangle(8.9, 50.2, 12.5, 51.8)
-extent_wgs84 = QgsRectangle(9.4, 49.95, 13.5, 52.05) 
+# Thueringen extent in WGS84
+#extent_wgs84 = QgsRectangle(8.9, 50.2, 12.5, 51.8)      # for state map 1_style
+extent_wgs84 = QgsRectangle(9.4, 50.0, 13.55, 52.05)   # for landkreis map 2_style
 crs_wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
 crs_target = QgsProject.instance().crs()
 

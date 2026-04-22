@@ -1,13 +1,18 @@
 # Filename: step2_4_make_statewise_landkreis_pie_geometries_yearly.py
 # PURPOSE: TRUE STATEWISE SIZING (ALL YEARS, AGS-based)
 #
-#   Input:
-#       - BASE_DIR/<bin_slug>/de_landkreis_pies_<bin_slug>.geojson
-#       - BASE_DIR/_STATEWISE_size_meta.json
+# Input:
+#   - BASE_DIR/<bin_slug>/de_landkreis_pies_<bin_slug>.geojson
+#   - BASE_DIR/_STATEWISE_size_meta.json
 #
-#   Output:
-#       - <bin_dir>/de_landkreis_pie_<bin_slug>.geojson          (all states, debug)
-#       - BASE_DIR/de_<state_slug>_landkreis_pie_<bin_slug>.geojson   (per-state)
+# Output:
+#   - <bin_dir>/de_landkreis_pie_<bin_slug>.geojson
+#   - BASE_DIR/de_<state_slug>_landkreis_pie_<bin_slug>.geojson
+#
+# Notes:
+#   - Keeps the user-defined landkreis radius range unchanged.
+#   - Works with the updated step2_3 schema (including optional state_abbrev).
+#   - Does not add any map labels by itself; it only writes pie polygons.
 
 from pathlib import Path
 import math
@@ -48,6 +53,7 @@ YEAR_BINS = [
 ]
 
 # ------------------------------ SIZING ------------------------------
+# Keep unchanged to stay aligned with the user's manual setup in step2_3.
 R_MIN_M = 5000.0
 R_MAX_M = 30000.0
 
@@ -77,11 +83,14 @@ def scale_linear(val, vmin, vmax, omin, omax):
     return omin + t * (omax - omin)
 
 
-def ring_pts(cxy, r, th1, th2, n=48):
-    cx, cy = cxy
-    dth = th2 - th1
+def ring_pts(center_xy, radius_m, theta_1, theta_2, n=48):
+    cx, cy = center_xy
+    delta_theta = theta_2 - theta_1
     return [
-        (cx + r * math.cos(th1 + dth * i / n), cy + r * math.sin(th1 + dth * i / n))
+        (
+            cx + radius_m * math.cos(theta_1 + delta_theta * i / n),
+            cy + radius_m * math.sin(theta_1 + delta_theta * i / n),
+        )
         for i in range(n + 1)
     ]
 
@@ -93,27 +102,28 @@ def make_pie(center_m, radius_m, ordered_pairs):
 
     slices = []
     shares = []
-    ang = 0.0
+    angle = 0.0
     order_id = 0
 
-    for k, v in ordered_pairs:
-        share = (v / total) if v and v > 0 else 0.0
-        dth = share * 2 * math.pi
-        t1, t2 = ang, ang + dth
-        ang = t2
+    for key, value in ordered_pairs:
+        share = (value / total) if value and value > 0 else 0.0
+        delta_theta = share * 2.0 * math.pi
+        theta_1, theta_2 = angle, angle + delta_theta
+        angle = theta_2
 
         if share > 0:
-            arc = ring_pts(center_m, radius_m, t1, t2)
+            arc = ring_pts(center_m, radius_m, theta_1, theta_2)
             poly = Polygon([center_m] + arc + [center_m])
             slices.append(
                 {
-                    "energy_key": k,
+                    "energy_key": key,
                     "share": share,
                     "poly_m": poly,
                     "order_id": order_id,
                 }
             )
-        shares.append((k, share))
+
+        shares.append((key, share))
         order_id += 1
 
     anchor_key = max(shares, key=lambda kv: kv[1])[0] if shares else None
@@ -135,26 +145,33 @@ def process_one_bin(bin_slug: str, state_meta: dict):
     if g_raw.crs is None or g_raw.crs.to_epsg() != 4326:
         g_raw = g_raw.set_crs("EPSG:4326", allow_override=True)
 
-    # extra safety: group again (state_slug, kreis_key, year_bin_slug)
+    # Extra safety regroup
     group_cols = ["state_slug", "kreis_key", "year_bin_slug", "year_bin_label"]
     grouped_rows = []
+
     for key, sub in g_raw.groupby(group_cols, dropna=False):
-        st, kreis, yslug, ylbl = key
+        state_slug, kreis_key, year_bin_slug, year_bin_label = key
         geom = sub.geometry.iloc[0]
 
         parts_sum = {}
-        for f in PART_FIELDS:
-            if f in sub.columns:
-                parts_sum[f] = float(sub[f].fillna(0).sum())
+        for field in PART_FIELDS:
+            if field in sub.columns:
+                parts_sum[field] = float(sub[field].fillna(0).sum())
             else:
-                parts_sum[f] = 0.0
+                parts_sum[field] = 0.0
+
         total_kw = sum(parts_sum.values())
 
+        state_abbrev = ""
+        if "state_abbrev" in sub.columns:
+            state_abbrev = str(sub["state_abbrev"].iloc[0] or "").strip()
+
         row = {
-            "state_slug": st,
-            "kreis_key": kreis,
-            "year_bin_slug": yslug,
-            "year_bin_label": ylbl,
+            "state_slug": state_slug,
+            "state_abbrev": state_abbrev,
+            "kreis_key": kreis_key,
+            "year_bin_slug": year_bin_slug,
+            "year_bin_label": year_bin_label,
             "geometry": geom,
             "total_kw": total_kw,
         }
@@ -170,11 +187,11 @@ def process_one_bin(bin_slug: str, state_meta: dict):
     global_rows = []
     per_state_rows = {}
 
-    for _, r in g.iterrows():
-        state_slug = r.get("state_slug")
+    for _, row in g.iterrows():
+        state_slug = row.get("state_slug")
         if not state_slug or state_slug not in state_meta:
             print(
-                f"  [WARN] Missing state meta for feature: state_slug={state_slug}, kreis={r.get('kreis_key','')}"
+                f"  [WARN] Missing state meta for feature: state_slug={state_slug}, kreis={row.get('kreis_key', '')}"
             )
             continue
 
@@ -182,11 +199,11 @@ def process_one_bin(bin_slug: str, state_meta: dict):
         vmin = float(meta["min_total_kw"])
         vmax = float(meta["max_total_kw"])
 
-        cx = float(r.geometry.x)
-        cy = float(r.geometry.y)
+        cx = float(row.geometry.x)
+        cy = float(row.geometry.y)
         mx, my = to_m.transform(cx, cy)
 
-        total_kw = float(r.get("total_kw", 0.0))
+        total_kw = float(row.get("total_kw", 0.0) or 0.0)
         radius_m = scale_linear(total_kw, vmin, vmax, R_MIN_M, R_MAX_M)
 
         if vmax > vmin:
@@ -196,12 +213,13 @@ def process_one_bin(bin_slug: str, state_meta: dict):
             scale = 0.5
 
         print(
-            f"    - {state_slug:12s} | {r.get('kreis_key',''):12s} "
+            f"    - {state_slug:20s} | {row.get('kreis_key', ''):12s} "
             f"total_kw={total_kw:12,.1f} kW → radius={radius_m:10,.1f} m (scale={scale:.3f})"
         )
 
-        parts = [(f, float(r.get(f, 0.0) or 0.0)) for f in PART_FIELDS]
+        parts = [(field, float(row.get(field, 0.0) or 0.0)) for field in PART_FIELDS]
         slices_m, anchor_key = make_pie((mx, my), radius_m, parts)
+        state_abbrev = str(row.get("state_abbrev", "") or "").strip()
 
         for s in slices_m:
             key = s["energy_key"]
@@ -211,30 +229,33 @@ def process_one_bin(bin_slug: str, state_meta: dict):
 
             coords_deg = [to_deg.transform(x, y) for (x, y) in poly_m.exterior.coords]
             poly_deg = Polygon(coords_deg)
-            rRGB, gRGB, bRGB = COLORS[key]
+            red, green, blue = COLORS[key]
 
-            row = {
-                "name": r.get("kreis_key", ""),
+            part_power_kw = float(dict(parts).get(key, 0.0) or 0.0)
+
+            out_row = {
+                "name": row.get("kreis_key", ""),
                 "state_slug": state_slug,
+                "state_abbrev": state_abbrev,
                 "energy_type": key,
-                "power_kw": float(dict(parts).get(key, 0.0)),
-                "power_gw": float(dict(parts).get(key, 0.0)) / 1_000_000.0,
-                "total_gw": float(total_kw) / 1_000_000.0,
-                "share": float(share),
+                "power_kw": part_power_kw,
+                "power_gw": part_power_kw / 1_000_000.0,
                 "total_kw": total_kw,
+                "total_gw": total_kw / 1_000_000.0,
+                "share": float(share),
                 "radius_m": float(radius_m),
                 "order_id": int(order_id),
                 "label_anchor": 1 if (anchor_key == key) else 0,
-                "year_bin": r.get("year_bin_label", ""),
-                "year_bin_slug": r.get("year_bin_slug", ""),
-                "color_r": rRGB,
-                "color_g": gRGB,
-                "color_b": bRGB,
+                "year_bin": row.get("year_bin_label", ""),
+                "year_bin_slug": row.get("year_bin_slug", ""),
+                "color_r": red,
+                "color_g": green,
+                "color_b": blue,
                 "geometry": poly_deg,
             }
 
-            global_rows.append(row)
-            per_state_rows.setdefault(state_slug, []).append(row)
+            global_rows.append(out_row)
+            per_state_rows.setdefault(state_slug, []).append(out_row)
 
     if not global_rows:
         print(f"  [WARN] No pies created for bin '{bin_slug}'")
@@ -249,9 +270,7 @@ def process_one_bin(bin_slug: str, state_meta: dict):
         st_gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
         st_outfile = OUT_DIR / f"de_{state_slug}_landkreis_pie_{bin_slug}.geojson"
         st_gdf.to_file(st_outfile, driver="GeoJSON")
-        print(
-            f"      [OK] wrote per-state pies: {st_outfile} (features={len(st_gdf)})"
-        )
+        print(f"      [OK] wrote per-state pies: {st_outfile} (features={len(st_gdf)})")
 
 
 def main():

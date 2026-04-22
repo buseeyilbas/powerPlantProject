@@ -14,12 +14,15 @@
 #               * Thüringen cumulative ROW chart (stacked by energy type) + headings
 #               * ROW chart guide lines (separate GeoJSON)
 #               * ROW chart frame (separate GeoJSON)
-#               * Energy type legend points
+#               * COLUMN chart (bars + labels + frame)
+#               * Energy type legend points + title
+#               * Pie size legend circles + labels
+#               * Legend frames
 #
 # Notes:
-# - MW is used for labeling (values are stored as kW, styles convert to MW).
-# - Coordinates for charts/headings are intentionally coarse (tune later in QGIS for Thüringen zoom).
-# - All comments and filenames are in English.
+# - MW is used for Thüringen labeling (values are stored as kW, styles convert to MW).
+# - Row chart, column chart, and map Landkreis numbers are intentionally kept as-is.
+# - Legend layout and title behavior are aligned with step1_5_thueringen_state_pie_inputs_yearly.py.
 
 from __future__ import annotations
 
@@ -27,34 +30,31 @@ from pathlib import Path
 import os
 import re
 import json
+import math
 import unicodedata
 from typing import Dict, Tuple, Optional, Iterable, List
 
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, Polygon, LineString
+from pyproj import Transformer
 
 
 # ---------- PATHS ----------
-# IMPORTANT: This MUST point to Thüringen-only 4-check output folder (plant points).
 INPUT_ROOT = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\by_state_yearly_4_checks\thueringen")
 
-# Output folder for yearly Landkreis pie inputs + chart/legend layers
 OUT_BASE = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\thueringen_statewise_landkreis_pies_yearly")
 
-# step0 output (Landkreis centers)
 CENTERS_PATH = Path(
     r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\thueringen_landkreis_centers\thueringen_landkreis_centers.geojson"
 )
 
-# GADM L2 for polygon fallback assignment (Thüringen Landkreise polygons)
 GADM_L2_PATH = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\gadm_data\gadm41_DEU\gadm41_DEU_2.json")
 
-# Global style meta used by the QGIS style script (all-years sizing)
 GLOBAL_META = OUT_BASE / "_THUERINGEN_GLOBAL_style_meta.json"
 
 
-# ---------- YEAR BINS (2-year ranges) ----------
+# ---------- YEAR BINS ----------
 YEAR_BINS = [
     ("pre_1990",  "≤1990",     None, 1990),
     ("1991_1992", "1991–1992", 1991, 1992),
@@ -78,7 +78,7 @@ YEAR_BINS = [
 ]
 BIN_LABEL = {slug: label for (slug, label, *_ ) in YEAR_BINS}
 YEAR_SLUG_ORDER = [slug for (slug, _label, _y1, _y2) in YEAR_BINS]
-INCLUDE_UNKNOWN = False  # if False: drop rows whose year/bin is unknown
+INCLUDE_UNKNOWN = False
 
 
 # ---------- ENERGY MAP / FIELDS ----------
@@ -110,6 +110,38 @@ STACK_ORDER = ["hydro_kw", "biogas_kw", "pv_kw", "wind_kw", "others_kw", "batter
 STATE_NAME = "Thüringen"
 STATE_SLUG = "thueringen"
 STATE_NUMBER = 16
+
+
+# ---------- SHARED TITLE TEXT ----------
+UNIFIED_TITLE_TEXT = {
+    "energy_legend": "Energy Type Color Legend",
+    "pie_size_legend": "Pie Size Legend",
+}
+
+# ---------- LEGEND SETTINGS (MATCH step1_5) ----------
+# Keep synchronized with step2_6_thueringen_statewise_landkreis_pie_geometries_yearly.py
+LEGEND_R_MIN_M = 9000.0
+LEGEND_R_MAX_M = 20000.0
+PIE_LEGEND_VALUES_MW = [8, 400]
+PIE_LEGEND_CENTER_LON = 9.40
+PIE_LEGEND_TOP_LAT = 51.57
+PIE_LEGEND_LABEL_DX_DEG = 0.3
+PIE_LEGEND_TITLE_LAT = 51.65
+PIE_LEGEND_EXTRA_GAP_M = 3000.0
+
+LEG_BASE_LON = 8.35
+LEG_TOP_LAT = 51.57
+LEG_ROW_STEP = -0.05
+LEGEND_TITLE_LAT = PIE_LEGEND_TITLE_LAT - 0.02
+
+LEGEND_FRAME_YMAX = 51.7
+LEGEND_FRAME_YMIN = 51.25 
+
+ENERGY_FRAME_XMIN = 8.28
+ENERGY_FRAME_XMAX = 9.12
+
+PIE_FRAME_XMIN = 9.17
+PIE_FRAME_XMAX = 9.82
 
 
 # ---------- HELPERS ----------
@@ -239,14 +271,6 @@ def load_thueringen_centers() -> Tuple[
     Dict[str, str],
     Dict[str, int],
 ]:
-    """
-    Load Thüringen Landkreis centers from step0 output.
-
-    Returns
-    -------
-    centers: kreis_slug -> (lon, lat)
-    slug_to_name: kreis_slug -> kreis_name
-    """
     if not CENTERS_PATH.exists():
         raise FileNotFoundError(f"[FATAL] Centers file not found: {CENTERS_PATH}")
 
@@ -254,7 +278,6 @@ def load_thueringen_centers() -> Tuple[
     if g.empty:
         raise RuntimeError("[FATAL] Centers file is empty.")
 
-    # Accept a few schema variants
     slug_col = None
     for c in ["kreis_slug", "kreis_key", "landkreis_slug", "slug"]:
         if c in g.columns:
@@ -289,7 +312,6 @@ def load_thueringen_centers() -> Tuple[
         if geom.geom_type == "Point":
             centers[ks] = (float(geom.x), float(geom.y))
         else:
-            # fallback: centroid if needed
             c = geom.centroid
             centers[ks] = (float(c.x), float(c.y))
 
@@ -311,10 +333,6 @@ def load_thueringen_centers() -> Tuple[
 
 
 def load_gadm_l2_thueringen_polys() -> gpd.GeoDataFrame:
-    """
-    Load GADM level-2 polygons for Germany and filter to Thüringen.
-    Uses 'NAME_1'/'NAME_2' in GADM data.
-    """
     if not GADM_L2_PATH.exists():
         raise FileNotFoundError(f"[FATAL] GADM L2 file not found: {GADM_L2_PATH}")
 
@@ -325,7 +343,6 @@ def load_gadm_l2_thueringen_polys() -> gpd.GeoDataFrame:
     if g.crs is None:
         g = g.set_crs("EPSG:4326", allow_override=True)
 
-    # Thüringen can appear as "Thüringen" or "Thueringen"
     if "NAME_1" not in g.columns or "NAME_2" not in g.columns:
         raise RuntimeError("[FATAL] GADM L2 schema missing NAME_1/NAME_2.")
 
@@ -333,7 +350,6 @@ def load_gadm_l2_thueringen_polys() -> gpd.GeoDataFrame:
     if g.empty:
         raise RuntimeError("[FATAL] No Thüringen polygons found in GADM L2.")
 
-    # Create kreis_slug
     g["kreis_slug"] = g["NAME_2"].astype(str).apply(norm)
 
     return g[["NAME_2", "kreis_slug", "geometry"]].copy()
@@ -358,21 +374,14 @@ KREIS_FIELD_CANDIDATES = [
 
 
 def assign_kreis_slug_with_fallback(gdf: gpd.GeoDataFrame, lk_poly: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """
-    Assign kreis_slug using:
-      (1) attribute candidates
-      (2) polygon spatial join fallback for missing/dirty cases
-    """
     gdf = gdf.copy()
 
-    # attribute-based
     raw_vals = []
     for _, r in gdf.iterrows():
         raw_vals.append(pick_first_nonempty(r, KREIS_FIELD_CANDIDATES))
     gdf["_kreis_raw"] = raw_vals
     gdf["_kreis_attr_slug"] = gdf["_kreis_raw"].apply(lambda v: norm(v) if v else "")
 
-    # for those still empty -> spatial join
     need_fallback = gdf["_kreis_attr_slug"].eq("") | gdf["_kreis_attr_slug"].isna()
     if need_fallback.any():
         pts = gdf[need_fallback].copy()
@@ -395,6 +404,129 @@ def assign_kreis_slug_with_fallback(gdf: gpd.GeoDataFrame, lk_poly: gpd.GeoDataF
     return gdf
 
 
+def scale_linear(val, vmin, vmax, omin, omax):
+    if vmax <= vmin:
+        return (omin + omax) / 2.0
+    t = (val - vmin) / (vmax - vmin)
+    t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+    return omin + t * (omax - omin)
+
+
+def make_circle_polygon_lonlat(center_lon, center_lat, radius_m, n=128):
+    to_m = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    to_deg = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+
+    cxm, cym = to_m.transform(center_lon, center_lat)
+    pts = []
+    for i in range(n + 1):
+        ang = 2.0 * math.pi * i / n
+        x = cxm + radius_m * math.cos(ang)
+        y = cym + radius_m * math.sin(ang)
+        lon, lat = to_deg.transform(x, y)
+        pts.append((lon, lat))
+    return Polygon(pts)
+
+
+def write_pie_size_legend(global_min_kw, global_max_kw):
+    circle_rows = []
+    label_rows = []
+
+    to_m = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    to_deg = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+
+    center_lon = PIE_LEGEND_CENTER_LON
+    center_x_m, top_y_m = to_m.transform(center_lon, PIE_LEGEND_TOP_LAT)
+
+    prev_radius_m = None
+    current_center_y_m = top_y_m
+
+    for idx, mw in enumerate(PIE_LEGEND_VALUES_MW):
+        total_kw = float(mw) * 1_000.0
+        radius_m = scale_linear(total_kw, global_min_kw, global_max_kw, LEGEND_R_MIN_M, LEGEND_R_MAX_M)
+
+        if idx == 0:
+            current_center_y_m = top_y_m
+        else:
+            current_center_y_m = (
+                current_center_y_m
+                - prev_radius_m
+                - radius_m
+                - PIE_LEGEND_EXTRA_GAP_M
+            )
+
+        center_lon_item, center_lat_item = to_deg.transform(center_x_m, current_center_y_m)
+
+        circle_rows.append({
+            "legend_mw": float(mw),
+            "legend_kw": total_kw,
+            "radius_m": radius_m,
+            "legend_label": f"{mw:,.0f} MW",
+            "geometry": make_circle_polygon_lonlat(center_lon_item, center_lat_item, radius_m),
+        })
+
+        label_rows.append({
+            "kind": "item",
+            "legend_mw": float(mw),
+            "legend_kw": total_kw,
+            "radius_m": radius_m,
+            "legend_label": f"{mw:,.0f} MW",
+            "geometry": Point(center_lon_item + PIE_LEGEND_LABEL_DX_DEG, center_lat_item),
+        })
+
+        prev_radius_m = radius_m
+
+    label_rows.append({
+        "kind": "title",
+        "legend_mw": 0.0,
+        "legend_kw": 0.0,
+        "radius_m": 0.0,
+        "legend_label": UNIFIED_TITLE_TEXT["pie_size_legend"],
+        "geometry": Point(PIE_FRAME_XMIN + 0.3, PIE_LEGEND_TITLE_LAT),
+    })
+
+    circles_gdf = gpd.GeoDataFrame(circle_rows, geometry="geometry", crs="EPSG:4326")
+    labels_gdf = gpd.GeoDataFrame(label_rows, geometry="geometry", crs="EPSG:4326")
+
+    circles_path = OUT_BASE / "thueringen_pie_size_legend_circles.geojson"
+    labels_path = OUT_BASE / "thueringen_pie_size_legend_labels.geojson"
+
+    circles_gdf.to_file(circles_path, driver="GeoJSON")
+    labels_gdf.to_file(labels_path, driver="GeoJSON")
+
+    print(f"[INFO] Wrote pie size legend circles -> {circles_path.name} ({len(circles_gdf)} features)")
+    print(f"[INFO] Wrote pie size legend labels  -> {labels_path.name} ({len(labels_gdf)} features)")
+
+
+def write_legend_frames():
+    frame_rows = [
+        {
+            "frame_type": "energy_legend",
+            "geometry": Polygon([
+                (ENERGY_FRAME_XMIN, LEGEND_FRAME_YMIN),
+                (ENERGY_FRAME_XMAX, LEGEND_FRAME_YMIN),
+                (ENERGY_FRAME_XMAX, LEGEND_FRAME_YMAX),
+                (ENERGY_FRAME_XMIN, LEGEND_FRAME_YMAX),
+                (ENERGY_FRAME_XMIN, LEGEND_FRAME_YMIN),
+            ]),
+        },
+        {
+            "frame_type": "pie_size_legend",
+            "geometry": Polygon([
+                (PIE_FRAME_XMIN, LEGEND_FRAME_YMIN),
+                (PIE_FRAME_XMAX, LEGEND_FRAME_YMIN),
+                (PIE_FRAME_XMAX, LEGEND_FRAME_YMAX),
+                (PIE_FRAME_XMIN, LEGEND_FRAME_YMAX),
+                (PIE_FRAME_XMIN, LEGEND_FRAME_YMIN),
+            ]),
+        },
+    ]
+
+    frames_gdf = gpd.GeoDataFrame(frame_rows, geometry="geometry", crs="EPSG:4326")
+    frames_path = OUT_BASE / "thueringen_legend_frames.geojson"
+    frames_gdf.to_file(frames_path, driver="GeoJSON")
+    print(f"[INFO] Wrote legend frames -> {frames_path.name} ({len(frames_gdf)} features)")
+
+
 # ---------- MAIN ----------
 def main() -> None:
     OUT_BASE.mkdir(parents=True, exist_ok=True)
@@ -402,7 +534,6 @@ def main() -> None:
     centers, slug_to_name, slug_to_number = load_thueringen_centers()
     lk_poly = load_gadm_l2_thueringen_polys()
 
-    # ---- Read all plant points ----
     frames: List[gpd.GeoDataFrame] = []
 
     for p in scan_geojsons(INPUT_ROOT):
@@ -417,7 +548,6 @@ def main() -> None:
             if g.empty:
                 continue
 
-            # Energy normalization
             if "energy_source_label" in g.columns:
                 g["energy_norm"] = g["energy_source_label"].apply(lambda v: normalize_energy(v, p.name))
             elif "Energietraeger" in g.columns:
@@ -425,7 +555,6 @@ def main() -> None:
             else:
                 g["energy_norm"] = normalize_energy(None, p.name)
 
-            # Power column detection
             power_col = None
             for c in [
                 "power_kw", "Nettonennleistung", "Bruttoleistung", "Nennleistung",
@@ -442,7 +571,6 @@ def main() -> None:
             if g.empty:
                 continue
 
-            # Year/bin
             g["_year"] = [extract_year(r, p.name) for _, r in g.iterrows()]
             bins = [year_to_bin(y) for y in g["_year"]]
             g["year_bin_slug"] = [b[0] for b in bins]
@@ -464,11 +592,8 @@ def main() -> None:
         df = df[df["year_bin_slug"] != "unknown"].copy()
 
     gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
-
-    # Assign Landkreis slug
     gdf = assign_kreis_slug_with_fallback(gdf, lk_poly)
 
-    # Canonical filter: keep ONLY rows that map to known Thüringen centers
     before_n = len(gdf)
     before_sum = float(gdf["_power"].fillna(0).sum())
 
@@ -505,14 +630,14 @@ def main() -> None:
         period_by_kreis_bin[(kreis_slug, yslug)] = parts
 
     # ----------------------------------------------------------
-    # B) CUMULATIVE per Landkreis across bins -> per_bin_rows_cum
-    #    (This is the key fix: pies grow over time)
+    # B) CUMULATIVE per Landkreis across bins
     # ----------------------------------------------------------
     per_bin_rows: Dict[str, List[dict]] = {}
     global_totals: List[float] = []
 
-    # deterministic kreis order for stable output (nice for debugging)
     kreis_list = sorted(list(centers.keys()))
+    if slug_to_number:
+        kreis_list = sorted(kreis_list, key=lambda ks: (slug_to_number.get(ks, 999), ks))
 
     cumulative_by_kreis: Dict[str, dict] = {
         ks: {f: 0.0 for f in PART_FIELDS}
@@ -539,10 +664,10 @@ def main() -> None:
                 "state_slug": STATE_SLUG,
                 "state_number": STATE_NUMBER,
 
-                # IMPORTANT: keep BOTH keys for step2_6 compatibility
                 "kreis_slug": ks,
                 "kreis_key": ks,
                 "kreis_name": slug_to_name.get(ks, ks),
+                "kreis_number": int(slug_to_number.get(ks, 0)) if slug_to_number else 0,
 
                 "year_bin_slug": slug,
                 "year_bin_label": BIN_LABEL[slug],
@@ -560,19 +685,27 @@ def main() -> None:
         if rows_out:
             per_bin_rows[slug] = rows_out
 
-    # ---- Global sizing meta (based on CUMULATIVE totals) ----
+    # ---- Global sizing meta ----
     if global_totals:
         gmin = float(min(global_totals))
         gmax = float(max(global_totals))
         GLOBAL_META.write_text(
-            json.dumps({"min_total_kw": gmin, "max_total_kw": gmax}, indent=2),
+            json.dumps(
+                {
+                    "min_total_kw": gmin,
+                    "max_total_kw": gmax,
+                    "radius_min_m": LEGEND_R_MIN_M,
+                    "radius_max_m": LEGEND_R_MAX_M,
+                },
+                indent=2
+            ),
             encoding="utf-8",
         )
         print(
             f"[GLOBAL SCALE] Thüringen landkreis pies (CUM): min={gmin:,.2f} kW, max={gmax:,.2f} kW -> {GLOBAL_META.name}"
         )
 
-    # ---- Write per-bin CUMULATIVE input points ----
+    # ---- Write per-bin cumulative input points ----
     for slug, _, *_ in YEAR_BINS:
         rows = per_bin_rows.get(slug, [])
         if not rows:
@@ -592,7 +725,7 @@ def main() -> None:
         print(f"[BIN INPUT CUM] wrote {out_path.name} (features={len(out_gdf)})")
 
     # ----------------------------------------------------------
-    # C) Thüringen totals per bin (CUMULATIVE already) + ROW chart + guides + frame + headings
+    # C) ROW CHART (KEEP AS-IS)
     # ----------------------------------------------------------
     yearly_totals: List[dict] = []
     bin_energy_totals: Dict[str, dict] = {}
@@ -626,8 +759,6 @@ def main() -> None:
         )
         print(f"[INFO] Wrote yearly totals JSON (cumulative) -> {totals_json.name}")
 
-        # ---- ROW CHART (horizontal cumulative chart) ----
-        # (Keep these coarse; you can tune in QGIS later.)
         CHART_BASE_LON = 8.5
         CHART_BASE_LAT = 50.25
         MAX_BAR_WIDTH  = 1.1
@@ -636,8 +767,6 @@ def main() -> None:
 
         YEAR_LABEL_LON  = CHART_BASE_LON - 0.12
         VALUE_LABEL_LON = 9.75
-
-        # guides should stop before the numbers column
         GUIDE_END_LON = VALUE_LABEL_LON - 0.10
 
         vals = [info["total_kw"] for info in yearly_totals if info["total_kw"] > 0]
@@ -646,7 +775,6 @@ def main() -> None:
         chart_features: List[dict] = []
         guide_features: List[dict] = []
 
-        # reversed => oldest at top or bottom? (same pattern as your other scripts)
         for idx, info in enumerate(reversed(yearly_totals)):
             slug  = info["year_bin_slug"]
             label = info["year_bin_label"]
@@ -665,7 +793,6 @@ def main() -> None:
             bar_ratio = max(0.0, min(1.0, bar_ratio))
             bar_width_total = bar_ratio * MAX_BAR_WIDTH
 
-            # stacked segments
             for key in STACK_ORDER:
                 seg_val = float(energy_sums.get(key, 0.0) or 0.0)
                 if seg_val <= 0:
@@ -692,18 +819,14 @@ def main() -> None:
                 })
                 x_base = x1
 
-            # GUIDE LINE (bar end -> numbers column)
-            start_x = x_base + 0.01
-            end_x = GUIDE_END_LON
-            if start_x < end_x:
+            if x_base + 0.01 < GUIDE_END_LON:
                 guide_features.append({
                     "year_bin_slug": slug,
                     "year_bin_label": label,
                     "kind": "guide",
-                    "geometry": LineString([(start_x, y_center), (end_x, y_center)])
+                    "geometry": LineString([(x_base + 0.01, y_center), (GUIDE_END_LON, y_center)])
                 })
 
-            # Year label point
             chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
@@ -715,7 +838,6 @@ def main() -> None:
                 "geometry": Point(YEAR_LABEL_LON, y_center)
             })
 
-            # Value label point
             chart_features.append({
                 "year_bin_slug": slug,
                 "year_bin_label": label,
@@ -727,10 +849,9 @@ def main() -> None:
                 "geometry": Point(VALUE_LABEL_LON, y_center)
             })
 
-        # Title row y
         title_y = CHART_BASE_LAT + (len(yearly_totals) + 1) * (BAR_HEIGHT_DEG + BAR_GAP_DEG)
+        title_x = CHART_BASE_LON + MAX_BAR_WIDTH / 2.0
 
-        # Title point (no unit inside title)
         chart_features.append({
             "year_bin_slug": "title",
             "year_bin_label": "Thüringen - Cumulative Installed Power",
@@ -739,10 +860,9 @@ def main() -> None:
             "total_kw": 0.0,
             "label_anchor": 0,
             "value_anchor": 0,
-            "geometry": Point(CHART_BASE_LON + MAX_BAR_WIDTH / 2.0, title_y)
+            "geometry": Point(title_x, title_y),
         })
 
-        # Unit point aligned with numbers column, same row as title (step1_3 style)
         chart_features.append({
             "year_bin_slug": "unit",
             "year_bin_label": "MW",
@@ -751,10 +871,9 @@ def main() -> None:
             "total_kw": 0.0,
             "label_anchor": 0,
             "value_anchor": 0,
-            "geometry": Point(VALUE_LABEL_LON, title_y)
+            "geometry": Point(VALUE_LABEL_LON, title_y),
         })
 
-        # ---- Headings (coarse, per bin group) ----
         HEADING_X_MAIN = 10.8
         HEADING_Y_MAIN = 51.7
         HEADING_X_SUB  = 11.4
@@ -787,21 +906,17 @@ def main() -> None:
                 "geometry": Point(HEADING_X_SUB, HEADING_Y_SUB),
             })
 
-        # ---- Write chart polygons+points ----
         chart_gdf = gpd.GeoDataFrame(chart_features, geometry="geometry", crs="EPSG:4326")
         chart_path = OUT_BASE / "thueringen_landkreis_yearly_totals_chart.geojson"
         chart_gdf.to_file(chart_path, driver="GeoJSON")
         print(f"[INFO] Wrote Thüringen landkreis cumulative ROW chart -> {chart_path.name} ({len(chart_gdf)} features)")
 
-        # ---- Write guides (separate file) ----
         if guide_features:
             guides_gdf = gpd.GeoDataFrame(guide_features, geometry="geometry", crs="EPSG:4326")
             guides_path = OUT_BASE / "thueringen_landkreis_yearly_totals_chart_guides.geojson"
             guides_gdf.to_file(guides_path, driver="GeoJSON")
             print(f"[INFO] Wrote Thüringen row chart guide lines -> {guides_path.name} ({len(guides_gdf)} lines)")
 
-        # ---- Frame (single rectangle, separate file) ----
-        # Include year labels on the left + number column on the right
         frame_left   = YEAR_LABEL_LON - 0.10
         frame_right  = VALUE_LABEL_LON + 0.10
         frame_bottom = CHART_BASE_LAT - 0.02
@@ -824,25 +939,21 @@ def main() -> None:
         frame_gdf.to_file(frame_path, driver="GeoJSON")
         print(f"[INFO] Wrote Thüringen row chart frame -> {frame_path.name}")
 
-        
-        # ---- COLUMN CHART (23 Landkreis, stacked, cumulative) ----
-        # Tune these in QGIS if needed; these are just sane defaults.
+        # ----------------------------------------------------------
+        # D) COLUMN CHART (KEEP AS-IS)
+        # ----------------------------------------------------------
         COL_BASE_LON = 12.80
         COL_BASE_LAT = 50.25
         COL_W        = 0.060
         COL_GAP      = 0.025
         COL_MAX_H    = 1.00
 
-        LABEL_DY     = 0.030   # below baseline
-        VALUE_DY     = 0.020   # above bar top
+        LABEL_DY     = 0.030
+        VALUE_DY     = 0.020
 
-        # Determine deterministic Landkreis order for 23 columns
         kreis_slugs = sorted(list(centers.keys()))
         if slug_to_number:
-            kreis_slugs = sorted(
-                kreis_slugs,
-                key=lambda s: (slug_to_number.get(s, 999), s),
-            )
+            kreis_slugs = sorted(kreis_slugs, key=lambda s: (slug_to_number.get(s, 999), s))
 
         max_kreis_total_kw = float(max(global_totals)) if global_totals else 1.0
         col_meta_path = OUT_BASE / "thu_landkreis_totals_columnChart_meta.json"
@@ -851,7 +962,6 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        
         bars_rows: List[dict] = []
         label_rows: List[dict] = []
 
@@ -874,7 +984,6 @@ def main() -> None:
             if not rows:
                 continue
 
-            # index rows by kreis
             by_kreis = {r["kreis_slug"]: r for r in rows if r.get("kreis_slug")}
 
             for idx, ks in enumerate(kreis_slugs):
@@ -891,7 +1000,6 @@ def main() -> None:
                 x1 = x0 + COL_W
                 y  = COL_BASE_LAT
 
-                # stacked segments
                 for f in STACK_ORDER:
                     v = float(r.get(f, 0.0) or 0.0)
                     if v <= 0:
@@ -904,17 +1012,13 @@ def main() -> None:
                         "state_name": STATE_NAME,
                         "state_slug": STATE_SLUG,
                         "state_number": STATE_NUMBER,
-
                         "year_bin_slug": slug,
                         "year_bin_label": label,
-
                         "landkreis_slug": ks,
                         "landkreis_number": lk_no,
                         "energy_type": f,
-
                         "value_kw": v,
                         "total_kw": total_kw,
-
                         "geometry": Polygon([(x0, y), (x1, y), (x1, y1), (x0, y1)]),
                     })
 
@@ -922,7 +1026,6 @@ def main() -> None:
 
                 cx = (x0 + x1) / 2.0
 
-                # Landkreis number label
                 label_rows.append({
                     "year_bin_slug": slug,
                     "year_bin_label": label,
@@ -933,7 +1036,6 @@ def main() -> None:
                     "geometry": Point(cx, COL_BASE_LAT - LABEL_DY),
                 })
 
-                # value label (top)
                 bar_h = (total_kw / max_kreis_total_kw) * COL_MAX_H
                 label_rows.append({
                     "year_bin_slug": slug,
@@ -947,30 +1049,22 @@ def main() -> None:
 
         if bars_rows:
             bars_path = OUT_BASE / "thu_landkreis_totals_columnChart_bars.geojson"
-
-            bars_gdf = gpd.GeoDataFrame(bars_rows, crs="EPSG:4326")
-            bars_gdf = bars_gdf.set_geometry("geometry")
-
+            bars_gdf = gpd.GeoDataFrame(bars_rows, crs="EPSG:4326").set_geometry("geometry")
             bars_gdf.to_file(bars_path, driver="GeoJSON")
             print(f"[COLUMN BARS] wrote {bars_path.name} (features={len(bars_gdf)})")
 
         if label_rows:
             labels_path = OUT_BASE / "thu_landkreis_totals_columnChart_labels.geojson"
-
-            labels_gdf = gpd.GeoDataFrame(label_rows, crs="EPSG:4326")
-            labels_gdf = labels_gdf.set_geometry("geometry")
-
+            labels_gdf = gpd.GeoDataFrame(label_rows, crs="EPSG:4326").set_geometry("geometry")
             labels_gdf.to_file(labels_path, driver="GeoJSON")
             print(f"[COLUMN LABELS] wrote {labels_path.name} (features={len(labels_gdf)})")
 
-
-        # ---- COLUMN CHART FRAME (single rectangle, separate file) ----
         total_width = len(kreis_slugs) * COL_W + (len(kreis_slugs) - 1) * COL_GAP
 
         col_frame_left = COL_BASE_LON - 0.08
         col_frame_right = COL_BASE_LON + total_width + 0.08
-        col_frame_bottom = COL_BASE_LAT - 0.08   # includes x labels
-        col_frame_top = COL_BASE_LAT + COL_MAX_H + 0.12  # includes title
+        col_frame_bottom = COL_BASE_LAT - 0.08
+        col_frame_top = COL_BASE_LAT + COL_MAX_H + 0.12
 
         col_frame_poly = Polygon([
             (col_frame_left, col_frame_bottom),
@@ -989,33 +1083,44 @@ def main() -> None:
         col_frame_gdf.to_file(col_frame_path, driver="GeoJSON")
         print(f"[INFO] Wrote Thüringen column chart frame -> {col_frame_path.name}")
 
-    # ---- ENERGY TYPE LEGEND (fixed positions) ----
-    LEG_BASE_LON   = 8.5
-    LEG_TOP_LAT    = 51.7
-    LEG_ROW_STEP   = -0.05
+    # ----------------------------------------------------------
+    # E) LEGENDS (MATCH step1_5)
+    # ----------------------------------------------------------
+    if global_totals:
+        gmin = float(min(global_totals))
+        gmax = float(max(global_totals))
 
-    legend_rows = [
-        ("pv_kw",      "Photovoltaics"),
-        ("wind_kw",    "Onshore Wind Energy"),
-        ("hydro_kw",   "Hydropower"),
-        ("biogas_kw",  "Biogas"),
-        ("battery_kw", "Battery"),
-        ("others_kw",  "Others"),
-    ]
+        legend_rows = [
+            ("pv_kw", "Photovoltaics"),
+            ("wind_kw", "Onshore Wind Energy"),
+            ("hydro_kw", "Hydropower"),
+            ("biogas_kw", "Biogas"),
+            ("battery_kw", "Battery"),
+            ("others_kw", "Others"),
+        ]
 
-    legend_feats = []
-    for idx, (etype, text) in enumerate(legend_rows):
-        y = LEG_TOP_LAT + idx * LEG_ROW_STEP
+        legend_feats = []
+        for idx, (etype, text) in enumerate(legend_rows):
+            y = LEG_TOP_LAT + idx * LEG_ROW_STEP
+            legend_feats.append({
+                "energy_type": etype,
+                "legend_label": text,
+                "geometry": Point(LEG_BASE_LON, y),
+            })
+
         legend_feats.append({
-            "energy_type": etype,
-            "legend_label": text,
-            "geometry": Point(LEG_BASE_LON, y),
+            "energy_type": "legend_title",
+            "legend_label": UNIFIED_TITLE_TEXT["energy_legend"],
+            "geometry": Point(ENERGY_FRAME_XMIN + 0.08, LEGEND_TITLE_LAT),
         })
 
-    legend_gdf = gpd.GeoDataFrame(legend_feats, geometry="geometry", crs="EPSG:4326")
-    legend_path = OUT_BASE / "thueringen_landkreis_energy_legend_points.geojson"
-    legend_gdf.to_file(legend_path, driver="GeoJSON")
-    print(f"[INFO] Wrote Thüringen energy legend layer -> {legend_path.name}")
+        legend_gdf = gpd.GeoDataFrame(legend_feats, geometry="geometry", crs="EPSG:4326")
+        legend_path = OUT_BASE / "thueringen_landkreis_energy_legend_points.geojson"
+        legend_gdf.to_file(legend_path, driver="GeoJSON")
+        print(f"[INFO] Wrote Thüringen energy legend layer -> {legend_path.name}")
+
+        write_pie_size_legend(gmin, gmax)
+        write_legend_frames()
 
     print("[DONE] step2_5 complete.")
 

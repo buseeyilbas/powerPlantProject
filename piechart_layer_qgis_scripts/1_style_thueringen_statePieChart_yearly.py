@@ -5,12 +5,15 @@
 #               - thueringen_state_pies_<bin>  (pie center points)
 #               - yearly_rowChart_total_power_<bin> (subset of row chart up to that bin)
 #               - yearly_rowChart_guides_<bin>      (dashed guide lines)
-#           Also load (optional):
-#               - Energy legend points (thueringen_energy_legend_points.geojson)
+#           Also load:
+#               - Energy type legend
+#               - Pie size legend
+#               - Legend frames
 #
 # Notes:
-# - QGIS 3.10 compatible
-# - MW stays (Thüringen scale)
+# - Keeps the existing Thüringen row chart / heading workflow.
+# - MW stays (Thüringen scale).
+# - Energy legend size matches the current nationwide style.
 
 from pathlib import Path
 import json
@@ -41,40 +44,52 @@ from qgis.PyQt.QtGui import QColor, QFont
 
 
 # ---------- SETTINGS ----------
-ROOT_DIR   = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\thueringen_state_pies_yearly")
+ROOT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\thueringen_state_pies_yearly")
 GROUP_NAME = "thueringen_state_pies (yearly)"
 
-SHOW_SLICE_LABELS    = False
-LOAD_CENTER_POINTS   = True
+SHOW_SLICE_LABELS = False
+LOAD_CENTER_POINTS = True
 LABEL_CENTER_NUMBERS = False
 
-LOAD_YEARLY_CHART    = True
-LOAD_GUIDE_LINES     = True
+LOAD_YEARLY_CHART = True
+LOAD_GUIDE_LINES = True
 
-LOAD_YEAR_OVERVIEW   = False
-LOAD_ENERGY_LEGEND   = True
+LOAD_YEAR_OVERVIEW = False
+LOAD_ENERGY_LEGEND = True
+LOAD_PIE_SIZE_LEGEND = True
+LOAD_LEGEND_FRAMES = True
 
 # Global chart files (from step1_5)
 YEARLY_CHART_PATH = ROOT_DIR / "thueringen_yearly_totals_chart.geojson"
-GUIDES_PATH       = ROOT_DIR / "thueringen_yearly_totals_chart_guides.geojson"
+GUIDES_PATH = ROOT_DIR / "thueringen_yearly_totals_chart_guides.geojson"
+
+# Legend / frame files (from step1_5)
+ENERGY_LEGEND_PATH = ROOT_DIR / "thueringen_energy_legend_points.geojson"
+PIE_SIZE_LEGEND_CIRCLES_PATH = ROOT_DIR / "thueringen_pie_size_legend_circles.geojson"
+PIE_SIZE_LEGEND_LABELS_PATH = ROOT_DIR / "thueringen_pie_size_legend_labels.geojson"
+LEGEND_FRAMES_PATH = ROOT_DIR / "thueringen_legend_frames.geojson"
+
+# ---------- SHARED TITLE STYLE ----------
+UNIFIED_TITLE_FONT_FAMILY = "Arial"
+UNIFIED_TITLE_FONT_SIZE = 10
+UNIFIED_TITLE_FONT_WEIGHT = QFont.Bold
 
 # ---------- CHART FRAME (rectangle) ----------
 DRAW_CHART_FRAMES = True
 
-# Row chart frame (you will SHIFT/resize by editing these numbers)
+# Row chart frame
 ROW_FRAME = {
     "xmin": 8.25,
     "ymin": 50.23,
     "xmax": 9.85,
     "ymax": 51.22,
 }
-FRAME_OUTLINE  = QColor(150, 150, 150, 255)
+FRAME_OUTLINE = QColor(150, 150, 150, 255)
 FRAME_WIDTH_MM = 0.4
 
-
-# Year bins and labels (source of truth)
+# Year bins and labels
 YEAR_BINS = [
-    ("pre_1990",  "≤1990",     None, 1990),
+    ("pre_1990", "≤1990", None, 1990),
     ("1991_1992", "1991–1992", 1991, 1992),
     ("1993_1994", "1993–1994", 1993, 1994),
     ("1995_1996", "1995–1996", 1995, 1996),
@@ -99,12 +114,12 @@ YEAR_SLUG_ORDER = [slug for (slug, _label, _y1, _y2) in YEAR_BINS]
 
 # Slice / energy palette
 PALETTE = {
-    "pv_kw":      QColor(255,255,0,255),
-    "battery_kw": QColor(148,87,235,255),
-    "wind_kw":    QColor(173,216,230,255),
-    "hydro_kw":   QColor(0,0,255,255),
-    "biogas_kw":  QColor(0,190,0,255),
-    "others_kw":  QColor(158,158,158,255),
+    "pv_kw": QColor(255, 255, 0, 255),
+    "battery_kw": QColor(148, 87, 235, 255),
+    "wind_kw": QColor(173, 216, 230, 255),
+    "hydro_kw": QColor(0, 0, 255, 255),
+    "biogas_kw": QColor(0, 190, 0, 255),
+    "others_kw": QColor(158, 158, 158, 255),
 }
 
 proj = QgsProject.instance()
@@ -174,6 +189,18 @@ def ensure_group(parent, name: str):
     return grp
 
 
+def make_unified_title_format():
+    fmt = QgsTextFormat()
+    fmt.setFont(QFont(UNIFIED_TITLE_FONT_FAMILY, UNIFIED_TITLE_FONT_SIZE, UNIFIED_TITLE_FONT_WEIGHT))
+    fmt.setSize(UNIFIED_TITLE_FONT_SIZE)
+    fmt.setColor(QColor(0, 0, 0))
+
+    buf = QgsTextBufferSettings()
+    buf.setEnabled(False)
+    fmt.setBuffer(buf)
+    return fmt
+
+
 def style_state_pie_layer(lyr: QgsVectorLayer):
     cats = []
     for key, color in PALETTE.items():
@@ -221,7 +248,7 @@ def style_center_layer(lyr: QgsVectorLayer, label_numbers: bool = False):
         "color": "0,0,0,0",
         "outline_style": "no",
         "outline_color": "0,0,0,0",
-        "outline_width": "0"
+        "outline_width": "0",
     })
     lyr.setRenderer(QgsSingleSymbolRenderer(sym))
 
@@ -254,11 +281,14 @@ def style_center_layer(lyr: QgsVectorLayer, label_numbers: bool = False):
 
 
 def style_energy_legend_layer(lyr: QgsVectorLayer):
+    """
+    Match the current nationwide energy legend size/style.
+    """
     cats = []
     for key, color in PALETTE.items():
         sym = QgsMarkerSymbol.createSimple({
             "name": "circle",
-            "size": "3.0",
+            "size": "6.0",
             "color": f"{color.red()},{color.green()},{color.blue()},255",
             "outline_style": "no",
             "outline_color": "0,0,0,0",
@@ -266,7 +296,7 @@ def style_energy_legend_layer(lyr: QgsVectorLayer):
         })
         cats.append(QgsRendererCategory(key, sym, key))
 
-    note_sym = QgsMarkerSymbol.createSimple({
+    title_sym = QgsMarkerSymbol.createSimple({
         "name": "circle",
         "size": "0.01",
         "color": "0,0,0,0",
@@ -274,7 +304,8 @@ def style_energy_legend_layer(lyr: QgsVectorLayer):
         "outline_color": "0,0,0,0",
         "outline_width": "0",
     })
-    cats.append(QgsRendererCategory("legend_note", note_sym, "legend_note"))
+    cats.append(QgsRendererCategory("legend_title", title_sym, "legend_title"))
+
     lyr.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))
 
     root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
@@ -292,8 +323,8 @@ def style_energy_legend_layer(lyr: QgsVectorLayer):
         pal.yOffset = 0.0
 
         fmt = QgsTextFormat()
-        fmt.setFont(QFont("Arial", 8))
-        fmt.setSize(8)
+        fmt.setFont(QFont("Arial", 9))
+        fmt.setSize(9)
         fmt.setColor(QColor(0, 0, 0))
         buf = QgsTextBufferSettings()
         buf.setEnabled(False)
@@ -304,16 +335,112 @@ def style_energy_legend_layer(lyr: QgsVectorLayer):
         rule.setFilterExpression(filter_expr)
         root_rule.appendChild(rule)
 
-    add_label_rule('"legend_label" = \'Photovoltaics\'',        12.5)
-    add_label_rule('"legend_label" = \'Onshore Wind Energy\'',  18.0)
-    add_label_rule('"legend_label" = \'Hydropower\'',           12.5)
-    add_label_rule('"legend_label" = \'Biogas\'',                9.0)
-    add_label_rule('"legend_label" = \'Battery\'',               9.0)
-    add_label_rule('"legend_label" = \'Others\'',                9.0)
-    add_label_rule('"energy_type" = \'legend_note\'',            6.0)
+    def add_title_rule():
+        pal = QgsPalLayerSettings()
+        pal.enabled = True
+        pal.isExpression = False
+        pal.fieldName = "legend_label"
+        pal.xOffset = 0
+        pal.yOffset = 0
+        pal.setFormat(make_unified_title_format())
+
+        rule = QgsRuleBasedLabeling.Rule(pal)
+        rule.setFilterExpression('"energy_type" = \'legend_title\'')
+        root_rule.appendChild(rule)
+
+    add_label_rule('"legend_label" = \'Photovoltaics\'', 15.0)
+    add_label_rule('"legend_label" = \'Onshore Wind Energy\'', 21.0)
+    add_label_rule('"legend_label" = \'Hydropower\'', 15.0)
+    add_label_rule('"legend_label" = \'Biogas\'', 11.0)
+    add_label_rule('"legend_label" = \'Battery\'', 11.0)
+    add_label_rule('"legend_label" = \'Others\'', 11.0)
+    add_title_rule()
 
     lyr.setLabeling(QgsRuleBasedLabeling(root_rule))
     lyr.setLabelsEnabled(True)
+    lyr.triggerRepaint()
+
+
+def style_pie_size_legend_circles_layer(lyr: QgsVectorLayer):
+    sym = QgsFillSymbol.createSimple({
+        "color": "0,0,0,0",
+        "outline_color": "90,90,90,255",
+        "outline_width": "0.35",
+    })
+    try:
+        sym.setOutputUnit(QgsUnitTypes.RenderMillimeters)
+    except Exception:
+        pass
+
+    lyr.setRenderer(QgsSingleSymbolRenderer(sym))
+    lyr.setLabelsEnabled(False)
+    lyr.triggerRepaint()
+
+
+def style_pie_size_legend_labels_layer(lyr: QgsVectorLayer):
+    sym = QgsMarkerSymbol.createSimple({
+        "name": "circle",
+        "size": "0.01",
+        "color": "0,0,0,0",
+        "outline_style": "no",
+        "outline_color": "0,0,0,0",
+        "outline_width": "0",
+    })
+    lyr.setRenderer(QgsSingleSymbolRenderer(sym))
+
+    root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
+
+    title_pal = QgsPalLayerSettings()
+    title_pal.enabled = True
+    title_pal.isExpression = True
+    title_pal.fieldName = 'CASE WHEN "kind" = \'title\' THEN "legend_label" ELSE NULL END'
+    title_pal.setFormat(make_unified_title_format())
+    try:
+        title_pal.placement = QgsPalLayerSettings.OverPoint
+    except Exception:
+        pass
+    title_rule = QgsRuleBasedLabeling.Rule(title_pal)
+    title_rule.setFilterExpression('"kind" = \'title\'')
+    root_rule.appendChild(title_rule)
+
+    item_pal = QgsPalLayerSettings()
+    item_pal.enabled = True
+    item_pal.isExpression = True
+    item_pal.fieldName = 'CASE WHEN "kind" = \'item\' THEN "legend_label" ELSE NULL END'
+    item_fmt = QgsTextFormat()
+    item_fmt.setFont(QFont("Arial", 8))
+    item_fmt.setSize(8)
+    item_fmt.setColor(QColor(0, 0, 0))
+    item_buf = QgsTextBufferSettings()
+    item_buf.setEnabled(False)
+    item_fmt.setBuffer(item_buf)
+    item_pal.setFormat(item_fmt)
+    try:
+        item_pal.placement = QgsPalLayerSettings.OverPoint
+    except Exception:
+        pass
+    item_rule = QgsRuleBasedLabeling.Rule(item_pal)
+    item_rule.setFilterExpression('"kind" = \'item\'')
+    root_rule.appendChild(item_rule)
+
+    lyr.setLabeling(QgsRuleBasedLabeling(root_rule))
+    lyr.setLabelsEnabled(True)
+    lyr.triggerRepaint()
+
+
+def style_legend_frames_layer(lyr: QgsVectorLayer):
+    sym = QgsFillSymbol.createSimple({
+        "color": "0,0,0,0",
+        "outline_color": "150,150,150,255",
+        "outline_width": "0.4",
+    })
+    try:
+        sym.setOutputUnit(QgsUnitTypes.RenderMillimeters)
+    except Exception:
+        pass
+
+    lyr.setRenderer(QgsSingleSymbolRenderer(sym))
+    lyr.setLabelsEnabled(False)
     lyr.triggerRepaint()
 
 
@@ -321,12 +448,11 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     """
     ROW chart styling (MW):
       - stacked polygons by energy_type
-      - year labels: label_anchor=1
-      - value labels: value_anchor=1 (numbers only)
-      - title: year_bin_slug='title'
-      - unit: year_bin_slug='unit'  (optional; if your geojson has it)
+      - year labels
+      - value labels
+      - title
+      - unit
     """
-
     fields = [f.name() for f in lyr.fields()]
     energy_field = "energy_type" if "energy_type" in fields else None
 
@@ -337,7 +463,7 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
                 "color": f"{color.red()},{color.green()},{color.blue()},220",
                 "outline_style": "no",
                 "outline_color": "0,0,0,0",
-                "outline_width": "0"
+                "outline_width": "0",
             })
             cats.append(QgsRendererCategory(key, sym, key))
         lyr.setRenderer(QgsCategorizedSymbolRenderer(energy_field, cats))
@@ -346,13 +472,12 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
             "color": "200,200,200,200",
             "outline_style": "no",
             "outline_color": "0,0,0,0",
-            "outline_width": "0"
+            "outline_width": "0",
         })
         lyr.setRenderer(QgsSingleSymbolRenderer(sym))
 
     root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
 
-    # (1) YEAR labels
     year_pal = QgsPalLayerSettings()
     year_pal.enabled = True
     year_pal.isExpression = True
@@ -376,7 +501,6 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     year_rule.setFilterExpression('"label_anchor" = 1')
     root_rule.appendChild(year_rule)
 
-    # (2) VALUE labels (MW numbers only; unit printed once via 'unit' point if exists)
     value_pal = QgsPalLayerSettings()
     value_pal.enabled = True
     value_pal.isExpression = True
@@ -404,7 +528,6 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     value_rule.setFilterExpression('"value_anchor" = 1')
     root_rule.appendChild(value_rule)
 
-    # (3) TITLE
     title_pal = QgsPalLayerSettings()
     title_pal.enabled = True
     title_pal.isExpression = True
@@ -428,7 +551,6 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     title_rule.setFilterExpression('"year_bin_slug" = \'title\'')
     root_rule.appendChild(title_rule)
 
-    # (4) unit label ("MW") point
     unit_pal = QgsPalLayerSettings()
     unit_pal.enabled = True
     unit_pal.isExpression = True
@@ -451,31 +573,6 @@ def style_yearly_chart_layer(lyr: QgsVectorLayer):
     unit_rule = QgsRuleBasedLabeling.Rule(unit_pal)
     unit_rule.setFilterExpression('"year_bin_slug" = \'unit\'')
     root_rule.appendChild(unit_rule)
-
-    # (4) UNIT point (optional)
-    if "year_bin_slug" in fields:
-        unit_pal = QgsPalLayerSettings()
-        unit_pal.enabled = True
-        unit_pal.isExpression = True
-        unit_pal.fieldName = 'CASE WHEN "year_bin_slug" = \'unit\' THEN "year_bin_label" ELSE NULL END'
-
-        unit_fmt = QgsTextFormat()
-        unit_fmt.setFont(QFont("Arial", 9, QFont.Bold))
-        unit_fmt.setSize(9)
-        unit_fmt.setColor(QColor(0, 0, 0))
-        unit_buf = QgsTextBufferSettings()
-        unit_buf.setEnabled(False)
-        unit_fmt.setBuffer(unit_buf)
-        unit_pal.setFormat(unit_fmt)
-
-        try:
-            unit_pal.placement = QgsPalLayerSettings.OverPoint
-        except Exception:
-            pass
-
-        unit_rule = QgsRuleBasedLabeling.Rule(unit_pal)
-        unit_rule.setFilterExpression('"year_bin_slug" = \'unit\'')
-        root_rule.appendChild(unit_rule)
 
     lyr.setLabeling(QgsRuleBasedLabeling(root_rule))
     lyr.setLabelsEnabled(True)
@@ -548,7 +645,7 @@ def _make_rect_feature(layer: QgsVectorLayer, xmin, ymin, xmax, ymax, kind: str)
 
 
 def add_row_chart_frame(parent_group: QgsLayerTreeGroup):
-    """One memory polygon layer with ONE rectangle (no inner lines)."""
+    """One memory polygon layer with one rectangle."""
     if not DRAW_CHART_FRAMES:
         return
 
@@ -583,7 +680,6 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     TWO labels:
       - main year heading
       - Installed Power (period) in MW
-    You will tweak coordinates anyway.
     """
     uri = (
         "Point?crs=EPSG:4326"
@@ -594,9 +690,8 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     lyr = QgsVectorLayer(uri, f"{slug}_heading", "memory")
     prov = lyr.dataProvider()
 
-    # Adjust for Thüringen view
     X_MAIN, Y_MAIN = 10.8, 51.7
-    X_SUB,  Y_SUB  = 11.4, 51.6
+    X_SUB, Y_SUB = 11.4, 51.6
 
     feats = []
 
@@ -624,7 +719,7 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
         "color": "0,0,0,0",
         "outline_style": "no",
         "outline_color": "0,0,0,0",
-        "outline_width": "0"
+        "outline_width": "0",
     })
     lyr.setRenderer(QgsSingleSymbolRenderer(sym))
 
@@ -677,20 +772,50 @@ def main():
 
     parent_group = ensure_group(root, GROUP_NAME)
 
-    # Frame (row chart only)
+    # Keep existing Thüringen row chart frame
     add_row_chart_frame(parent_group)
 
     # Energy legend (once)
     if LOAD_ENERGY_LEGEND:
-        legend_path = ROOT_DIR / "thueringen_energy_legend_points.geojson"
-        if legend_path.exists():
-            legend_lyr = QgsVectorLayer(str(legend_path), "energy_legend", "ogr")
+        if ENERGY_LEGEND_PATH.exists():
+            legend_lyr = QgsVectorLayer(str(ENERGY_LEGEND_PATH), "energy_legend", "ogr")
             if legend_lyr.isValid():
                 style_energy_legend_layer(legend_lyr)
                 proj.addMapLayer(legend_lyr, False)
                 parent_group.addLayer(legend_lyr)
         else:
-            print(f"[WARN] Energy legend file not found: {legend_path}")
+            print(f"[WARN] Energy legend file not found: {ENERGY_LEGEND_PATH}")
+
+    # Pie size legend (once)
+    if LOAD_PIE_SIZE_LEGEND:
+        if PIE_SIZE_LEGEND_CIRCLES_PATH.exists():
+            pie_leg_circles = QgsVectorLayer(str(PIE_SIZE_LEGEND_CIRCLES_PATH), "pie_size_legend_circles", "ogr")
+            if pie_leg_circles.isValid():
+                style_pie_size_legend_circles_layer(pie_leg_circles)
+                proj.addMapLayer(pie_leg_circles, False)
+                parent_group.addLayer(pie_leg_circles)
+        else:
+            print(f"[WARN] Pie size legend circles file not found: {PIE_SIZE_LEGEND_CIRCLES_PATH}")
+
+        if PIE_SIZE_LEGEND_LABELS_PATH.exists():
+            pie_leg_labels = QgsVectorLayer(str(PIE_SIZE_LEGEND_LABELS_PATH), "pie_size_legend_labels", "ogr")
+            if pie_leg_labels.isValid():
+                style_pie_size_legend_labels_layer(pie_leg_labels)
+                proj.addMapLayer(pie_leg_labels, False)
+                parent_group.addLayer(pie_leg_labels)
+        else:
+            print(f"[WARN] Pie size legend labels file not found: {PIE_SIZE_LEGEND_LABELS_PATH}")
+
+    # Legend frames (once)
+    if LOAD_LEGEND_FRAMES:
+        if LEGEND_FRAMES_PATH.exists():
+            legend_frames_lyr = QgsVectorLayer(str(LEGEND_FRAMES_PATH), "legend_frames", "ogr")
+            if legend_frames_lyr.isValid():
+                style_legend_frames_layer(legend_frames_lyr)
+                proj.addMapLayer(legend_frames_lyr, False)
+                parent_group.addLayer(legend_frames_lyr)
+        else:
+            print(f"[WARN] Legend frames file not found: {LEGEND_FRAMES_PATH}")
 
     chart_exists = YEARLY_CHART_PATH.exists()
 
@@ -732,7 +857,6 @@ def main():
                     allowed = YEAR_SLUG_ORDER[:idx + 1]
                     allowed_list = ",".join(f"'{s}'" for s in allowed)
 
-                    # Keep title + unit points always if they exist
                     expr = (
                         f"(\"year_bin_slug\" IN ({allowed_list}) "
                         f"OR \"year_bin_slug\" IN ('title','unit'))"
@@ -760,7 +884,7 @@ def main():
         # ----- YEAR HEADING -----
         add_year_heading(bin_group, slug, label)
 
-    print("[DONE] Thüringen state pies (yearly) loaded + row chart (MW) + guides + frame.")
+    print("[DONE] Thüringen state pies (yearly) loaded + legends + row chart (MW) + guides + frame.")
 
 
 main()
