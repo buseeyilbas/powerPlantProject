@@ -13,7 +13,7 @@ from PyQt5.QtSvg import QSvgGenerator
 from qgis.core import QgsProject, QgsMapRendererCustomPainterJob
 
 # ---- SETTINGS ----
-OUT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\3_national_landkreis_pie_yearly")  # change if needed
+OUT_DIR = Path(r"C:\Users\jo73vure\Desktop\powerPlantProject\exports\3_national_landkreis_pie_yearly\germany_nationalLandkreisPie_yearly")  # change if needed
 BASE_FILENAME = "maStr_pieChart_nationalLandkreisPies"  # <-- put your desired base filename here (no extension)
 DPI = 1000
 SCALE = 10

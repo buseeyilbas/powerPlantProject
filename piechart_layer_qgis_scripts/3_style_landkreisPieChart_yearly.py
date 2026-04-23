@@ -1,20 +1,19 @@
-
 # Filename: 3_style_landkreisPieChart_yearly.py
 # Purpose:
-#   Nationwide Landkreis yearly piecharts (polygon pies) + row/column charts + legend
-#   Fully mirrors 2_style_statewise_landkreisPieChart_yearly.py (same coordinates & formatting).
+#   Nationwide Landkreis yearly piecharts (polygon pies) + row/column charts + legends
+#   Fully aligned with 2_style_statewise_landkreisPieChart_yearly.py
 #
-# Requirements:
-#   - 2-year bins are cumulative (handled by step3_3/step3_4 outputs; style only loads).
-#   - GW unit everywhere:
-#       * Row chart + subtitle: 2 decimals (your "2 significant figure" convention)
-#       * Column chart values: 1 decimal
-#   - Row chart title changed (read from chart layer's "title" point).
-#   - Dashed guidelines are loaded and styled.
-#   - Column bar chart is loaded (bars + labels) with same coordinates as 2_style / 1_style.
-#   - Frames are drawn (row + column) as a memory polygon layer (same coords).
+# Covered:
+#   - Row chart + dashed guides
+#   - State column chart with 2-letter state abbreviations
+#   - Energy legend
+#   - Pie size legend
+#   - Legend frames
+#   - Year heading
 #
-# QGIS 3.10 / Python 3.7 SAFE
+# Important:
+#   - No state labels are added on the map itself.
+#   - Radius sizing is NOT changed here.
 
 from pathlib import Path
 import json
@@ -51,14 +50,19 @@ ROOT_DIR = Path(
 
 GROUP_NAME = "nationwide_landkreis_pies (yearly)"
 
-# Files produced by step3_3 (live in ROOT_DIR)
+# Global chart files (produced by step3_3)
 YEARLY_CHART_PATH = ROOT_DIR / "de_yearly_totals_chart.geojson"
 GUIDES_PATH = ROOT_DIR / "de_yearly_totals_chart_guides.geojson"
-LEGEND_PATH = ROOT_DIR / "de_energy_legend_points.geojson"
 
-# Column chart produced by step3_3
+# State column chart (produced by step3_3)
 STATE_COL_BARS_PATH = ROOT_DIR / "de_state_totals_columnChart_bars.geojson"
 STATE_COL_LABELS_PATH = ROOT_DIR / "de_state_totals_columnChart_labels.geojson"
+
+# Legends + frames (produced by step3_3)
+ENERGY_LEGEND_PATH = ROOT_DIR / "de_energy_legend_points.geojson"
+PIE_SIZE_LEGEND_CIRCLES_PATH = ROOT_DIR / "de_pie_size_legend_circles.geojson"
+PIE_SIZE_LEGEND_LABELS_PATH = ROOT_DIR / "de_pie_size_legend_labels.geojson"
+LEGEND_FRAMES_PATH = ROOT_DIR / "de_legend_frames.geojson"
 
 
 # ----------------------------------------------------------
@@ -68,30 +72,46 @@ LOAD_YEARLY_CHART = True
 LOAD_GUIDE_LINES = True
 LOAD_STATE_COLUMN_CHART = True
 LOAD_ENERGY_LEGEND = True
+LOAD_PIE_SIZE_LEGEND = True
+LOAD_LEGEND_FRAMES = True
+
 DRAW_CHART_FRAMES = True
 
 
 # ----------------------------------------------------------
-# FRAMES (same as 2_style / 1_style coordinates)
+# SHARED TITLE STYLE
 # ----------------------------------------------------------
+UNIFIED_TITLE_FONT_FAMILY = "Arial"
+UNIFIED_TITLE_FONT_SIZE = 10
+UNIFIED_TITLE_FONT_WEIGHT = QFont.Bold
+
+
+# ----------------------------------------------------------
+# FRAMES
+# ----------------------------------------------------------
+DRAW_CHART_FRAMES = True
+COMMON_FRAME_YMIN = 47.15
+
 ROW_FRAME = {
     "xmin": -3.75,
-    "ymin": 47.25,
+    "ymin": COMMON_FRAME_YMIN,
     "xmax": 5.80,
     "ymax": 51.75,
 }
+
 COL_FRAME = {
     "xmin": 15.95,
-    "ymin": 47.15,
+    "ymin": COMMON_FRAME_YMIN,
     "xmax": 22.10,
     "ymax": 54.45,
 }
+
 FRAME_OUTLINE = QColor(150, 150, 150, 255)
 FRAME_WIDTH_MM = 0.4
 
 
 # ----------------------------------------------------------
-# YEAR BINS (same as 2_style source of truth)
+# YEAR BINS
 # ----------------------------------------------------------
 YEAR_BINS = [
     ("pre_1990", "≤1990", None, 1990),
@@ -119,7 +139,7 @@ YEAR_LABEL_MAP = {slug: label for (slug, label, *_rest) in YEAR_BINS}
 
 
 # ----------------------------------------------------------
-# COLORS (same as 2_style / 1_style)
+# COLORS
 # ----------------------------------------------------------
 PALETTE = {
     "pv_kw": QColor(255, 255, 0, 255),
@@ -151,7 +171,6 @@ def ensure_group(parent, name: str):
 
 
 def is_anchor_one(v) -> bool:
-    """Robust check: accepts 1, 1.0, '1', '1.0', True."""
     if v is None:
         return False
     try:
@@ -161,7 +180,6 @@ def is_anchor_one(v) -> bool:
 
 
 def bin_sort_key_slug(slug: str):
-    """Sort bins naturally (pre_1990 first, then by numeric year)."""
     if slug == "pre_1990":
         return (-1, -1)
     m = re.match(r"(\d{4})_(\d{4})", slug)
@@ -170,11 +188,22 @@ def bin_sort_key_slug(slug: str):
     return (9999, slug)
 
 
+def make_unified_title_format():
+    fmt = QgsTextFormat()
+    fmt.setFont(QFont(UNIFIED_TITLE_FONT_FAMILY, UNIFIED_TITLE_FONT_SIZE, UNIFIED_TITLE_FONT_WEIGHT))
+    fmt.setSize(UNIFIED_TITLE_FONT_SIZE)
+    fmt.setColor(QColor(0, 0, 0))
+
+    buf = QgsTextBufferSettings()
+    buf.setEnabled(False)
+    fmt.setBuffer(buf)
+    return fmt
+
+
 # ----------------------------------------------------------
 # PIE STYLING
 # ----------------------------------------------------------
 def style_pie_polygons(layer: QgsVectorLayer):
-    """Categorized fill color by energy_type."""
     cats = []
     for key, color in PALETTE.items():
         sym = QgsFillSymbol.createSimple(
@@ -192,7 +221,7 @@ def style_pie_polygons(layer: QgsVectorLayer):
 
 
 # ----------------------------------------------------------
-# ENERGY LEGEND (same as 2_style)
+# ENERGY LEGEND
 # ----------------------------------------------------------
 def style_energy_legend_layer(layer: QgsVectorLayer):
     cats = []
@@ -200,7 +229,7 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
         sym = QgsMarkerSymbol.createSimple(
             {
                 "name": "circle",
-                "size": "3.0",
+                "size": "6.0",
                 "color": f"{color.red()},{color.green()},{color.blue()},255",
                 "outline_style": "no",
                 "outline_color": "0,0,0,0",
@@ -209,7 +238,7 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
         )
         cats.append(QgsRendererCategory(key, sym, key))
 
-    note_sym = QgsMarkerSymbol.createSimple(
+    title_sym = QgsMarkerSymbol.createSimple(
         {
             "name": "circle",
             "size": "0.01",
@@ -219,12 +248,13 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
             "outline_width": "0",
         }
     )
-    cats.append(QgsRendererCategory("legend_note", note_sym, "legend_note"))
+    cats.append(QgsRendererCategory("legend_title", title_sym, "legend_title"))
+
     layer.setRenderer(QgsCategorizedSymbolRenderer("energy_type", cats))
 
     root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
 
-    def add_rule(label_value: str, x_offset: float):
+    def add_label_rule(filter_expr: str, x_offset: float):
         pal = QgsPalLayerSettings()
         pal.enabled = True
         pal.isExpression = False
@@ -237,8 +267,8 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
             pass
 
         fmt = QgsTextFormat()
-        fmt.setFont(QFont("Arial", 8))
-        fmt.setSize(8)
+        fmt.setFont(QFont("Arial", 9))
+        fmt.setSize(9)
         fmt.setColor(QColor(0, 0, 0))
         buf = QgsTextBufferSettings()
         buf.setEnabled(False)
@@ -246,16 +276,29 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
         pal.setFormat(fmt)
 
         rule = QgsRuleBasedLabeling.Rule(pal)
-        rule.setFilterExpression(f"\"legend_label\" = '{label_value}'")
+        rule.setFilterExpression(filter_expr)
         root_rule.appendChild(rule)
 
-    add_rule("Photovoltaics", 12.5)
-    add_rule("Onshore Wind Energy", 18.0)
-    add_rule("Hydropower", 12.5)
-    add_rule("Biogas", 9.0)
-    add_rule("Battery", 9.0)
-    add_rule("Others", 9.0)
-    add_rule("legend_note", 6.0)
+    def add_title_rule():
+        pal = QgsPalLayerSettings()
+        pal.enabled = True
+        pal.isExpression = False
+        pal.fieldName = "legend_label"
+        pal.xOffset = 0
+        pal.yOffset = 0
+        pal.setFormat(make_unified_title_format())
+
+        rule = QgsRuleBasedLabeling.Rule(pal)
+        rule.setFilterExpression("\"energy_type\" = 'legend_title'")
+        root_rule.appendChild(rule)
+
+    add_label_rule("\"legend_label\" = 'Photovoltaics'", 15.0)
+    add_label_rule("\"legend_label\" = 'Onshore Wind Energy'", 21.0)
+    add_label_rule("\"legend_label\" = 'Hydropower'", 15.0)
+    add_label_rule("\"legend_label\" = 'Biogas'", 11.0)
+    add_label_rule("\"legend_label\" = 'Battery'", 11.0)
+    add_label_rule("\"legend_label\" = 'Others'", 11.0)
+    add_title_rule()
 
     layer.setLabeling(QgsRuleBasedLabeling(root_rule))
     layer.setLabelsEnabled(True)
@@ -263,7 +306,93 @@ def style_energy_legend_layer(layer: QgsVectorLayer):
 
 
 # ----------------------------------------------------------
-# ROW CHART (GW: values 2 decimals; title + unit points)
+# PIE SIZE LEGEND
+# ----------------------------------------------------------
+def style_pie_size_legend_circles_layer(layer: QgsVectorLayer):
+    sym = QgsFillSymbol.createSimple({
+        "color": "0,0,0,0",
+        "outline_color": "90,90,90,255",
+        "outline_width": "0.35",
+    })
+    try:
+        sym.setOutputUnit(QgsUnitTypes.RenderMillimeters)
+    except Exception:
+        pass
+
+    layer.setRenderer(QgsSingleSymbolRenderer(sym))
+    layer.setLabelsEnabled(False)
+    layer.triggerRepaint()
+
+
+def style_pie_size_legend_labels_layer(layer: QgsVectorLayer):
+    sym = QgsMarkerSymbol.createSimple({
+        "name": "circle",
+        "size": "0.01",
+        "color": "0,0,0,0",
+        "outline_style": "no",
+        "outline_color": "0,0,0,0",
+        "outline_width": "0",
+    })
+    layer.setRenderer(QgsSingleSymbolRenderer(sym))
+
+    root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
+
+    title_pal = QgsPalLayerSettings()
+    title_pal.enabled = True
+    title_pal.isExpression = True
+    title_pal.fieldName = 'CASE WHEN "kind" = \'title\' THEN "legend_label" ELSE NULL END'
+    title_pal.setFormat(make_unified_title_format())
+    try:
+        title_pal.placement = QgsPalLayerSettings.OverPoint
+    except Exception:
+        pass
+    title_rule = QgsRuleBasedLabeling.Rule(title_pal)
+    title_rule.setFilterExpression("\"kind\" = 'title'")
+    root_rule.appendChild(title_rule)
+
+    item_pal = QgsPalLayerSettings()
+    item_pal.enabled = True
+    item_pal.isExpression = True
+    item_pal.fieldName = 'CASE WHEN "kind" = \'item\' THEN "legend_label" ELSE NULL END'
+    item_fmt = QgsTextFormat()
+    item_fmt.setFont(QFont("Arial", 8))
+    item_fmt.setSize(8)
+    item_fmt.setColor(QColor(0, 0, 0))
+    item_buf = QgsTextBufferSettings()
+    item_buf.setEnabled(False)
+    item_fmt.setBuffer(item_buf)
+    item_pal.setFormat(item_fmt)
+    try:
+        item_pal.placement = QgsPalLayerSettings.OverPoint
+    except Exception:
+        pass
+    item_rule = QgsRuleBasedLabeling.Rule(item_pal)
+    item_rule.setFilterExpression("\"kind\" = 'item'")
+    root_rule.appendChild(item_rule)
+
+    layer.setLabeling(QgsRuleBasedLabeling(root_rule))
+    layer.setLabelsEnabled(True)
+    layer.triggerRepaint()
+
+
+def style_legend_frames_layer(layer: QgsVectorLayer):
+    sym = QgsFillSymbol.createSimple({
+        "color": "0,0,0,0",
+        "outline_color": "150,150,150,255",
+        "outline_width": "0.4",
+    })
+    try:
+        sym.setOutputUnit(QgsUnitTypes.RenderMillimeters)
+    except Exception:
+        pass
+
+    layer.setRenderer(QgsSingleSymbolRenderer(sym))
+    layer.setLabelsEnabled(False)
+    layer.triggerRepaint()
+
+
+# ----------------------------------------------------------
+# ROW CHART
 # ----------------------------------------------------------
 def style_yearly_chart_layer(layer: QgsVectorLayer):
     fields = [f.name() for f in layer.fields()]
@@ -295,7 +424,6 @@ def style_yearly_chart_layer(layer: QgsVectorLayer):
 
     root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
 
-    # (1) year labels
     year_pal = QgsPalLayerSettings()
     year_pal.enabled = True
     year_pal.isExpression = True
@@ -313,10 +441,9 @@ def style_yearly_chart_layer(layer: QgsVectorLayer):
     except Exception:
         pass
     year_rule = QgsRuleBasedLabeling.Rule(year_pal)
-    year_rule.setFilterExpression('"label_anchor" = 1')
+    year_rule.setFilterExpression("\"label_anchor\" = 1")
     root_rule.appendChild(year_rule)
 
-    # (2) value labels (GW numbers, 2 decimals, no suffix)
     value_pal = QgsPalLayerSettings()
     value_pal.enabled = True
     value_pal.isExpression = True
@@ -338,31 +465,22 @@ def style_yearly_chart_layer(layer: QgsVectorLayer):
     except Exception:
         pass
     value_rule = QgsRuleBasedLabeling.Rule(value_pal)
-    value_rule.setFilterExpression('"value_anchor" = 1')
+    value_rule.setFilterExpression("\"value_anchor\" = 1")
     root_rule.appendChild(value_rule)
 
-    # (3) chart title
     title_pal = QgsPalLayerSettings()
     title_pal.enabled = True
     title_pal.isExpression = True
     title_pal.fieldName = 'CASE WHEN "year_bin_slug" = \'title\' THEN "year_bin_label" ELSE NULL END'
-    title_fmt = QgsTextFormat()
-    title_fmt.setFont(QFont("Arial", 9))
-    title_fmt.setSize(9)
-    title_fmt.setColor(QColor(0, 0, 0))
-    title_buf = QgsTextBufferSettings()
-    title_buf.setEnabled(False)
-    title_fmt.setBuffer(title_buf)
-    title_pal.setFormat(title_fmt)
+    title_pal.setFormat(make_unified_title_format())
     try:
         title_pal.placement = QgsPalLayerSettings.OverPoint
     except Exception:
         pass
     title_rule = QgsRuleBasedLabeling.Rule(title_pal)
-    title_rule.setFilterExpression('"year_bin_slug" = \'title\'')
+    title_rule.setFilterExpression("\"year_bin_slug\" = 'title'")
     root_rule.appendChild(title_rule)
 
-    # (4) unit label point ("GW") shown once
     unit_pal = QgsPalLayerSettings()
     unit_pal.enabled = True
     unit_pal.isExpression = True
@@ -380,7 +498,7 @@ def style_yearly_chart_layer(layer: QgsVectorLayer):
     except Exception:
         pass
     unit_rule = QgsRuleBasedLabeling.Rule(unit_pal)
-    unit_rule.setFilterExpression('"year_bin_slug" = \'unit\'')
+    unit_rule.setFilterExpression("\"year_bin_slug\" = 'unit'")
     root_rule.appendChild(unit_rule)
 
     layer.setLabeling(QgsRuleBasedLabeling(root_rule))
@@ -389,7 +507,6 @@ def style_yearly_chart_layer(layer: QgsVectorLayer):
 
 
 def style_yearly_guides_layer(layer: QgsVectorLayer):
-    """Dashed guide lines from bar end to value column."""
     sym = QgsLineSymbol.createSimple(
         {"color": "0,0,0,120", "width": "0.20", "line_style": "dash"}
     )
@@ -409,7 +526,7 @@ def style_yearly_guides_layer(layer: QgsVectorLayer):
 
 
 # ----------------------------------------------------------
-# COLUMN CHART (values 1 decimal GW)
+# COLUMN CHART
 # ----------------------------------------------------------
 def style_state_column_bars_layer(layer: QgsVectorLayer):
     cats = []
@@ -459,12 +576,11 @@ def style_state_column_labels_layer(layer: QgsVectorLayer):
 
     root_rule = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
 
-    # (1) state numbers
     st_pal = QgsPalLayerSettings()
     st_pal.enabled = True
     st_pal.isExpression = True
     st_pal.fieldName = (
-        "CASE WHEN \"kind\" = 'state_label' THEN to_string(\"state_number\") ELSE NULL END"
+        "CASE WHEN \"kind\" = 'state_label' THEN \"state_abbrev\" ELSE NULL END"
     )
     st_fmt = QgsTextFormat()
     st_fmt.setFont(QFont("Arial", 7, QFont.Bold))
@@ -482,7 +598,6 @@ def style_state_column_labels_layer(layer: QgsVectorLayer):
     st_rule.setFilterExpression("\"kind\" = 'state_label'")
     root_rule.appendChild(st_rule)
 
-    # (2) values (GW, 1 decimal)
     val_pal = QgsPalLayerSettings()
     val_pal.enabled = True
     val_pal.isExpression = True
@@ -505,19 +620,13 @@ def style_state_column_labels_layer(layer: QgsVectorLayer):
     val_rule.setFilterExpression("\"kind\" = 'value_label'")
     root_rule.appendChild(val_rule)
 
-    # (3) title
     title_pal = QgsPalLayerSettings()
     title_pal.enabled = True
     title_pal.isExpression = True
-    title_pal.fieldName = "CASE WHEN \"kind\" = 'title' THEN \"year_bin_label\" ELSE NULL END"
-    title_fmt = QgsTextFormat()
-    title_fmt.setFont(QFont("Arial", 9, QFont.Bold))
-    title_fmt.setSize(9)
-    title_fmt.setColor(QColor(0, 0, 0))
-    title_buf = QgsTextBufferSettings()
-    title_buf.setEnabled(False)
-    title_fmt.setBuffer(title_buf)
-    title_pal.setFormat(title_fmt)
+    title_pal.fieldName = (
+        "CASE WHEN \"kind\" = 'title' THEN \"year_bin_label\" ELSE NULL END"
+    )
+    title_pal.setFormat(make_unified_title_format())
     try:
         title_pal.placement = QgsPalLayerSettings.OverPoint
     except Exception:
@@ -532,7 +641,7 @@ def style_state_column_labels_layer(layer: QgsVectorLayer):
 
 
 # ----------------------------------------------------------
-# FRAMES (memory layer)
+# FRAMES
 # ----------------------------------------------------------
 def _make_rect_feature(layer: QgsVectorLayer, xmin, ymin, xmax, ymax, kind: str) -> QgsFeature:
     f = QgsFeature(layer.fields())
@@ -579,12 +688,12 @@ def add_chart_frames(parent_group: QgsLayerTreeGroup):
     layer.setLabelsEnabled(False)
     layer.triggerRepaint()
 
-    QgsProject.instance().addMapLayer(layer, False)
+    proj.addMapLayer(layer, False)
     parent_group.addLayer(layer)
 
 
 # ----------------------------------------------------------
-# YEAR HEADING (memory layer; coords same as 2_style)
+# YEAR HEADING
 # ----------------------------------------------------------
 def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str, per_bin_gw):
     uri = (
@@ -654,7 +763,7 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     pal_main.setFormat(fmt_main)
 
     rule_main = QgsRuleBasedLabeling.Rule(pal_main)
-    rule_main.setFilterExpression('"kind" = \'main\'')
+    rule_main.setFilterExpression("\"kind\" = 'main'")
     root_rule.appendChild(rule_main)
 
     pal_sub = QgsPalLayerSettings()
@@ -676,7 +785,7 @@ def add_year_heading(parent_group: QgsLayerTreeGroup, slug: str, label_text: str
     pal_sub.setFormat(fmt_sub)
 
     rule_sub = QgsRuleBasedLabeling.Rule(pal_sub)
-    rule_sub.setFilterExpression('"kind" = \'sub\'')
+    rule_sub.setFilterExpression("\"kind\" = 'sub'")
     root_rule.appendChild(rule_sub)
 
     layer.setLabeling(QgsRuleBasedLabeling(root_rule))
@@ -695,29 +804,52 @@ def main():
         print(f"[ERROR] ROOT_DIR does not exist: {ROOT_DIR}")
         return
 
-    # remove old group
     old = root.findGroup(GROUP_NAME)
     if old:
         root.removeChildNode(old)
 
     group = ensure_group(root, GROUP_NAME)
 
-    # frames
     add_chart_frames(group)
 
-    # legend
-    if LOAD_ENERGY_LEGEND and LEGEND_PATH.exists():
-        legend = QgsVectorLayer(str(LEGEND_PATH), "energy_legend", "ogr")
+    if LOAD_ENERGY_LEGEND and ENERGY_LEGEND_PATH.exists():
+        legend = QgsVectorLayer(str(ENERGY_LEGEND_PATH), "energy_legend", "ogr")
         if legend.isValid():
             style_energy_legend_layer(legend)
             proj.addMapLayer(legend, False)
             group.addLayer(legend)
         else:
-            print(f"[WARN] Legend layer invalid: {LEGEND_PATH}")
+            print(f"[WARN] Legend layer invalid: {ENERGY_LEGEND_PATH}")
     elif LOAD_ENERGY_LEGEND:
-        print(f"[WARN] Legend file not found: {LEGEND_PATH}")
+        print(f"[WARN] Legend file not found: {ENERGY_LEGEND_PATH}")
 
-    # PERIOD GW for subtitle (diff of cumulative totals read from chart)
+    if LOAD_PIE_SIZE_LEGEND and PIE_SIZE_LEGEND_CIRCLES_PATH.exists():
+        pie_leg_circles = QgsVectorLayer(str(PIE_SIZE_LEGEND_CIRCLES_PATH), "pie_size_legend_circles", "ogr")
+        if pie_leg_circles.isValid():
+            style_pie_size_legend_circles_layer(pie_leg_circles)
+            proj.addMapLayer(pie_leg_circles, False)
+            group.addLayer(pie_leg_circles)
+    elif LOAD_PIE_SIZE_LEGEND:
+        print(f"[WARN] Pie size legend circles file not found: {PIE_SIZE_LEGEND_CIRCLES_PATH}")
+
+    if LOAD_PIE_SIZE_LEGEND and PIE_SIZE_LEGEND_LABELS_PATH.exists():
+        pie_leg_labels = QgsVectorLayer(str(PIE_SIZE_LEGEND_LABELS_PATH), "pie_size_legend_labels", "ogr")
+        if pie_leg_labels.isValid():
+            style_pie_size_legend_labels_layer(pie_leg_labels)
+            proj.addMapLayer(pie_leg_labels, False)
+            group.addLayer(pie_leg_labels)
+    elif LOAD_PIE_SIZE_LEGEND:
+        print(f"[WARN] Pie size legend labels file not found: {PIE_SIZE_LEGEND_LABELS_PATH}")
+
+    if LOAD_LEGEND_FRAMES and LEGEND_FRAMES_PATH.exists():
+        legend_frames = QgsVectorLayer(str(LEGEND_FRAMES_PATH), "legend_frames", "ogr")
+        if legend_frames.isValid():
+            style_legend_frames_layer(legend_frames)
+            proj.addMapLayer(legend_frames, False)
+            group.addLayer(legend_frames)
+    elif LOAD_LEGEND_FRAMES:
+        print(f"[WARN] Legend frames file not found: {LEGEND_FRAMES_PATH}")
+
     PER_BIN_GW = {}
     try:
         if YEARLY_CHART_PATH.exists():
@@ -754,15 +886,10 @@ def main():
     chart_exists = YEARLY_CHART_PATH.exists()
     guides_exists = GUIDES_PATH.exists()
 
-    # bins
     for slug in sorted(YEAR_LABEL_MAP.keys(), key=bin_sort_key_slug):
         bin_label = YEAR_LABEL_MAP[slug]
         bin_group = ensure_group(group, bin_label)
 
-        # ----------------------------------------------------------
-        # Load nationwide pie polygons for this bin (step3_4 output)
-        # Path: ROOT_DIR/<bin_slug>/de_landkreis_pie_<bin_slug>.geojson
-        # ----------------------------------------------------------
         pie_path = ROOT_DIR / slug / f"de_landkreis_pie_{slug}.geojson"
         if pie_path.exists():
             pies = QgsVectorLayer(str(pie_path), f"landkreis_pies_{slug}", "ogr")
@@ -775,9 +902,6 @@ def main():
         else:
             print(f"[INFO] Pie file missing for bin {slug}: {pie_path}")
 
-        # ----------------------------------------------------------
-        # Row chart subset (cumulative up to bin)
-        # ----------------------------------------------------------
         if LOAD_YEARLY_CHART and chart_exists:
             chart_lyr = QgsVectorLayer(str(YEARLY_CHART_PATH), f"yearly_rowChart_total_power_{slug}", "ogr")
             if chart_lyr.isValid():
@@ -792,9 +916,6 @@ def main():
                 proj.addMapLayer(chart_lyr, False)
                 bin_group.addLayer(chart_lyr)
 
-        # ----------------------------------------------------------
-        # Dashed guidelines subset
-        # ----------------------------------------------------------
         if LOAD_GUIDE_LINES and guides_exists:
             guides_lyr = QgsVectorLayer(str(GUIDES_PATH), f"yearly_rowChart_guides_{slug}", "ogr")
             if guides_lyr.isValid():
@@ -807,9 +928,6 @@ def main():
                 proj.addMapLayer(guides_lyr, False)
                 bin_group.addLayer(guides_lyr)
 
-        # ----------------------------------------------------------
-        # Column chart subset (bars + labels)
-        # ----------------------------------------------------------
         if LOAD_STATE_COLUMN_CHART:
             if STATE_COL_BARS_PATH.exists():
                 bars_lyr = QgsVectorLayer(str(STATE_COL_BARS_PATH), f"state_columnBars_{slug}", "ogr")
@@ -833,9 +951,6 @@ def main():
             else:
                 print(f"[WARN] STATE_COL_LABELS_PATH not found: {STATE_COL_LABELS_PATH}")
 
-        # ----------------------------------------------------------
-        # Year heading (main + subtitle in GW)
-        # ----------------------------------------------------------
         add_year_heading(bin_group, slug, bin_label, PER_BIN_GW.get(slug))
 
     print("[DONE] Loaded nationwide Landkreis pies with full 2_style-aligned styling.")

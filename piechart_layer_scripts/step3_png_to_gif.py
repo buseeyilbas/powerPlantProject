@@ -24,7 +24,7 @@ OUTPUT_FOLDER_2 = Path(
 )
 
 # Frame duration in milliseconds
-FRAME_DURATION_MS = 1000 
+FRAME_DURATION_MS = 2000 
 
 
 if FRAME_DURATION_MS == 1000:
