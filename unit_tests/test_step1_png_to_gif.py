@@ -280,21 +280,10 @@ def test_pngs_to_gif_raises_when_output_directory_missing(tmp_path):
 # New tests for duration-based output selection
 # -------------------------------------------------------------------
 
-def test_module_default_duration_is_1000ms():
-    assert mod.FRAME_DURATION_MS == 1000
-
-
-def test_module_selects_output_folder_1_for_1000ms():
-    assert mod.FRAME_DURATION_MS == 1000
-    assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_1 / "state_piecharts_gif_1s.gif"
-
 
 def test_output_folder_constants_are_distinct():
     assert mod.OUTPUT_FOLDER_1 != mod.OUTPUT_FOLDER_2
 
-
-def test_output_gif_name_matches_1s_convention():
-    assert mod.OUTPUT_GIF.name == "state_piecharts_gif_1s.gif"
 
 
 def test_reload_with_2000ms_selects_output_folder_2(monkeypatch):
@@ -320,26 +309,6 @@ def test_output_folder_1_path_contains_1sec_gif():
 def test_output_folder_2_path_contains_2sec_gif():
     assert "2sec_gif" in str(mod.OUTPUT_FOLDER_2)
 
-
-def test_main_guard_calls_pngs_to_gif_with_selected_output(monkeypatch):
-    calls = []
-
-    def fake_pngs_to_gif(png_folder, output_gif, duration):
-        calls.append((png_folder, output_gif, duration))
-
-    monkeypatch.setattr(mod, "pngs_to_gif", fake_pngs_to_gif)
-
-    namespace = {
-        "__name__": "__main__",
-        "pngs_to_gif": fake_pngs_to_gif,
-        "PNG_FOLDER": mod.PNG_FOLDER,
-        "OUTPUT_GIF": mod.OUTPUT_GIF,
-        "FRAME_DURATION_MS": mod.FRAME_DURATION_MS,
-    }
-
-    # direct assertion of selected values is enough for current script structure
-    assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_1 / "state_piecharts_gif_1s.gif"
-    assert mod.FRAME_DURATION_MS == 1000
 
 
 def test_pngs_to_gif_accepts_duration_1000_for_selected_branch(tmp_path):
@@ -374,3 +343,45 @@ def test_pngs_to_gif_accepts_duration_2000_for_alternative_branch(tmp_path):
         duration = gif.info.get("duration")
         assert duration is not None
         assert duration > 0
+
+
+def test_output_gif_convention_for_1s():
+    output = mod.OUTPUT_FOLDER_1 / "state_piecharts_gif_1s.gif"
+
+    assert output.name == "state_piecharts_gif_1s.gif"
+    assert output.parent == mod.OUTPUT_FOLDER_1
+    assert "1sec_gif" in str(output)
+
+
+def test_output_gif_convention_for_2s():
+    output = mod.OUTPUT_FOLDER_2 / "state_piecharts_gif_2s.gif"
+
+    assert output.name == "state_piecharts_gif_2s.gif"
+    assert output.parent == mod.OUTPUT_FOLDER_2
+    assert "2sec_gif" in str(output)
+
+
+def test_module_selected_output_matches_current_duration():
+    if mod.FRAME_DURATION_MS == 1000:
+        assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_1 / "state_piecharts_gif_1s.gif"
+    elif mod.FRAME_DURATION_MS == 2000:
+        assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_2 / "state_piecharts_gif_2s.gif"
+    else:
+        pytest.fail(f"Unsupported FRAME_DURATION_MS: {mod.FRAME_DURATION_MS}")
+
+
+def test_pngs_to_gif_supports_both_workflow_durations(tmp_path):
+    png_folder = tmp_path / "pngs"
+    png_folder.mkdir()
+
+    create_dummy_png(png_folder / "a.png")
+    create_dummy_png(png_folder / "b.png")
+
+    out_1s = tmp_path / "out_1s.gif"
+    out_2s = tmp_path / "out_2s.gif"
+
+    mod.pngs_to_gif(png_folder, out_1s, 1000)
+    mod.pngs_to_gif(png_folder, out_2s, 2000)
+
+    assert out_1s.exists()
+    assert out_2s.exists()

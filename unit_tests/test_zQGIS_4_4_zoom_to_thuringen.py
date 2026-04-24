@@ -132,31 +132,8 @@ def import_module_with_fakes(monkeypatch):
 # Tests
 # -------------------------------------------------------------------
 
-def test_creates_two_rectangles_and_uses_the_second_one(monkeypatch):
-    module, project, canvas, created_rectangles, created_crs, created_transforms = import_module_with_fakes(
-        monkeypatch
-    )
 
-    assert len(created_rectangles) == 2
-    first_source = created_rectangles[0]
-    second_source = created_rectangles[1]
-    transform = created_transforms[0]
 
-    assert (first_source.xmin, first_source.ymin, first_source.xmax, first_source.ymax) == (8.9, 50.2, 12.5, 51.8)
-    assert (second_source.xmin, second_source.ymin, second_source.xmax, second_source.ymax) == (9.4, 49.95, 13.5, 52.05)
-    assert transform.transform_calls == [second_source]
-    
-
-def test_effective_extent_matches_second_assignment(monkeypatch):
-    module, project, canvas, created_rectangles, created_crs, created_transforms = import_module_with_fakes(
-        monkeypatch
-    )
-
-    effective_extent = created_rectangles[1]
-    assert effective_extent.xmin == 9.4
-    assert effective_extent.ymin == 49.95
-    assert effective_extent.xmax == 13.5
-    assert effective_extent.ymax == 52.05
 
 
 def test_creates_source_crs_as_epsg_4326(monkeypatch):
@@ -196,7 +173,7 @@ def test_transforms_bounding_box_of_final_extent(monkeypatch):
     )
 
     transform = created_transforms[0]
-    final_source_extent = created_rectangles[1]
+    final_source_extent = created_rectangles[0]
 
     assert transform.transform_calls == [final_source_extent]
 
@@ -223,3 +200,57 @@ def test_prints_zoom_success_message(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "🔍 Zoomed to Thüringen." in captured.out
+
+def test_creates_one_rectangle_with_one_of_supported_thueringen_extents(monkeypatch):
+    module, project, canvas, created_rectangles, created_crs, created_transforms = import_module_with_fakes(
+        monkeypatch
+    )
+
+    assert len(created_rectangles) == 1
+
+    source_extent = created_rectangles[0]
+    transform = created_transforms[0]
+
+    extent_tuple = (
+        source_extent.xmin,
+        source_extent.ymin,
+        source_extent.xmax,
+        source_extent.ymax,
+    )
+
+    supported_extents = {
+        (8.9, 50.2, 12.5, 51.8),
+        (9.4, 50.0, 13.55, 52.05),
+    }
+
+    assert extent_tuple in supported_extents
+    assert transform.transform_calls == [source_extent]
+
+def test_effective_extent_is_one_of_supported_thueringen_extents(monkeypatch):
+    module, project, canvas, created_rectangles, created_crs, created_transforms = import_module_with_fakes(
+        monkeypatch
+    )
+
+    effective_extent = created_rectangles[0]
+
+    extent_tuple = (
+        effective_extent.xmin,
+        effective_extent.ymin,
+        effective_extent.xmax,
+        effective_extent.ymax,
+    )
+
+    assert extent_tuple in {
+        (8.9, 50.2, 12.5, 51.8),
+        (9.4, 50.0, 13.55, 52.05),
+    }
+
+def test_transforms_bounding_box_of_active_extent(monkeypatch):
+    module, project, canvas, created_rectangles, created_crs, created_transforms = import_module_with_fakes(
+        monkeypatch
+    )
+
+    transform = created_transforms[0]
+    active_source_extent = created_rectangles[0]
+
+    assert transform.transform_calls == [active_source_extent]

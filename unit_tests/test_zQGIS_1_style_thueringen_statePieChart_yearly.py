@@ -555,6 +555,11 @@ YEARLY_CHART_PATH = ROOT_DIR + r"\thueringen_yearly_totals_chart.geojson"
 GUIDES_PATH = ROOT_DIR + r"\thueringen_yearly_totals_chart_guides.geojson"
 LEGEND_PATH = ROOT_DIR + r"\thueringen_energy_legend_points.geojson"
 
+ENERGY_LEGEND_PATH = ROOT_DIR + r"\thueringen_energy_legend_points.geojson"
+PIE_SIZE_LEGEND_CIRCLES_PATH = ROOT_DIR + r"\thueringen_pie_size_legend_circles.geojson"
+PIE_SIZE_LEGEND_LABELS_PATH = ROOT_DIR + r"\thueringen_pie_size_legend_labels.geojson"
+LEGEND_FRAMES_PATH = ROOT_DIR + r"\thueringen_legend_frames.geojson"
+
 
 # -------------------------------------------------------------------
 # Fixtures
@@ -796,7 +801,7 @@ def test_style_center_layer_with_numbers_enables_simple_labeling(minimal_import)
     assert lyr.repaintCalled() is True
 
 
-def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import):
+def test_style_energy_legend_layer_adds_palette_plus_legend_title(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "legend", "ogr")
 
@@ -806,11 +811,16 @@ def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import)
     assert isinstance(renderer, FakeCategorizedSymbolRenderer)
     assert renderer.field_name == "energy_type"
     assert len(renderer.categories) == len(module.PALETTE) + 1
-    assert renderer.categories[-1].value == "legend_note"
+    assert renderer.categories[-1].value == "legend_title"
 
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
-    assert len(labeling.root_rule.children) == 7
+
+    rules = labeling.root_rule.children
+    assert len(rules) == 7
+    assert rules[-1].filter_expression == '"energy_type" = \'legend_title\''
+    assert rules[-1].pal.format.font.weight == FakeQFont.Bold
+
     assert lyr.labelsEnabled() is True
     assert lyr.repaintCalled() is True
 
@@ -835,12 +845,11 @@ def test_style_yearly_chart_layer_with_energy_field_uses_categorized_renderer(mi
     rules = labeling.root_rule.children
 
     # Script currently creates 5 rules because "unit" is added twice when year_bin_slug exists
-    assert len(rules) == 5
+    assert len(rules) == 4
     assert rules[0].filter_expression == '"label_anchor" = 1'
     assert rules[1].filter_expression == '"value_anchor" = 1'
     assert rules[2].filter_expression == '"year_bin_slug" = \'title\''
     assert rules[3].filter_expression == '"year_bin_slug" = \'unit\''
-    assert rules[4].filter_expression == '"year_bin_slug" = \'unit\''
     assert lyr.labelsEnabled() is True
     assert lyr.repaintCalled() is True
 

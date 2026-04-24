@@ -767,3 +767,234 @@ def test_main_writes_guides_and_chart_outputs(tmp_path, monkeypatch):
     assert (out_dir / "thu_landkreis_totals_columnChart_labels.geojson").exists()
     assert (out_dir / "thu_landkreis_totals_columnChart_frame.geojson").exists()
     assert (out_dir / "thueringen_landkreis_energy_legend_points.geojson").exists()
+
+
+def test_radius_constants_match_manual_thueringen_landkreis_setup():
+    assert mod.LEGEND_R_MIN_M == 9000.0
+    assert mod.LEGEND_R_MAX_M == 20000.0
+    assert mod.PIE_LEGEND_VALUES_MW == [8, 400]
+
+
+def test_write_pie_size_legend_outputs_scaled_mw_legend(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "OUT_BASE", tmp_path)
+
+    mod.write_pie_size_legend(global_min_kw=8_000.0, global_max_kw=400_000.0)
+
+    circles_path = tmp_path / "thueringen_pie_size_legend_circles.geojson"
+    labels_path = tmp_path / "thueringen_pie_size_legend_labels.geojson"
+
+    assert circles_path.exists()
+    assert labels_path.exists()
+
+    circles = gpd.read_file(circles_path)
+    labels = gpd.read_file(labels_path)
+
+    assert len(circles) == len(mod.PIE_LEGEND_VALUES_MW)
+    assert set(circles["legend_mw"]) == {8.0, 400.0}
+    assert set(circles["legend_label"]) == {"8 MW", "400 MW"}
+
+    assert circles["radius_m"].min() >= mod.LEGEND_R_MIN_M
+    assert circles["radius_m"].max() <= mod.LEGEND_R_MAX_M
+
+    title_rows = labels[labels["kind"] == "title"]
+    assert len(title_rows) == 1
+    assert title_rows.iloc[0]["legend_label"] == mod.UNIFIED_TITLE_TEXT["pie_size_legend"]
+
+
+def test_write_legend_frames_outputs_energy_and_pie_frames(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "OUT_BASE", tmp_path)
+
+    mod.write_legend_frames()
+
+    frames_path = tmp_path / "thueringen_legend_frames.geojson"
+    assert frames_path.exists()
+
+    frames = gpd.read_file(frames_path)
+    assert set(frames["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_main_writes_pie_size_legend_and_legend_frames(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [400_000],
+            "commissioning_date": ["2020"],
+            "Landkreis": ["A"],
+            "energy_source_label": ["Solar"],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "kreis_slug": ["a"],
+            "kreis_name": ["A"],
+            "kreis_number": [1],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    poly = gpd.GeoDataFrame(
+        {
+            "NAME_1": ["Thüringen"],
+            "NAME_2": ["A"],
+        },
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    poly_path = tmp_path / "gadm.json"
+    poly.to_file(poly_path, driver="GeoJSON")
+
+    out_base = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
+    monkeypatch.setattr(mod, "GLOBAL_META", out_base / "_THUERINGEN_GLOBAL_style_meta.json")
+
+    mod.main()
+
+    circles_path = out_base / "thueringen_pie_size_legend_circles.geojson"
+    labels_path = out_base / "thueringen_pie_size_legend_labels.geojson"
+    frames_path = out_base / "thueringen_legend_frames.geojson"
+
+    assert circles_path.exists()
+    assert labels_path.exists()
+    assert frames_path.exists()
+
+    circles = gpd.read_file(circles_path)
+    labels = gpd.read_file(labels_path)
+    frames = gpd.read_file(frames_path)
+
+    assert set(circles["legend_mw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_MW)
+    assert "title" in set(labels["kind"])
+    assert mod.UNIFIED_TITLE_TEXT["pie_size_legend"] in set(labels["legend_label"])
+    assert set(frames["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_main_global_meta_uses_current_radius_constants(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [400_000],
+            "commissioning_date": ["2020"],
+            "Landkreis": ["A"],
+            "energy_source_label": ["Solar"],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "kreis_slug": ["a"],
+            "kreis_name": ["A"],
+            "kreis_number": [1],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    poly = gpd.GeoDataFrame(
+        {
+            "NAME_1": ["Thüringen"],
+            "NAME_2": ["A"],
+        },
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    poly_path = tmp_path / "gadm.json"
+    poly.to_file(poly_path, driver="GeoJSON")
+
+    out_base = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
+    monkeypatch.setattr(mod, "GLOBAL_META", out_base / "_THUERINGEN_GLOBAL_style_meta.json")
+
+    mod.main()
+
+    meta = json.loads((out_base / "_THUERINGEN_GLOBAL_style_meta.json").read_text(encoding="utf-8"))
+
+    assert meta["radius_min_m"] == mod.LEGEND_R_MIN_M
+    assert meta["radius_max_m"] == mod.LEGEND_R_MAX_M
+    assert meta["radius_min_m"] == 9000.0
+    assert meta["radius_max_m"] == 20000.0
+
+
+def test_main_energy_legend_has_title_and_expected_labels(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "Landkreis": ["A"],
+            "energy_source_label": ["Solar"],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "kreis_slug": ["a"],
+            "kreis_name": ["A"],
+            "kreis_number": [1],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    poly = gpd.GeoDataFrame(
+        {
+            "NAME_1": ["Thüringen"],
+            "NAME_2": ["A"],
+        },
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    poly_path = tmp_path / "gadm.json"
+    poly.to_file(poly_path, driver="GeoJSON")
+
+    out_base = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
+    monkeypatch.setattr(mod, "GLOBAL_META", out_base / "_THUERINGEN_GLOBAL_style_meta.json")
+
+    mod.main()
+
+    legend = gpd.read_file(out_base / "thueringen_landkreis_energy_legend_points.geojson")
+
+    assert "legend_title" in set(legend["energy_type"])
+    assert mod.UNIFIED_TITLE_TEXT["energy_legend"] in set(legend["legend_label"])
+    assert {
+        "Photovoltaics",
+        "Onshore Wind Energy",
+        "Hydropower",
+        "Biogas",
+        "Battery",
+        "Others",
+    }.issubset(set(legend["legend_label"]))

@@ -718,3 +718,165 @@ def test_main_writes_guides_when_chart_exists(tmp_path, monkeypatch):
 
     guides = tmp_path / "out" / "de_yearly_totals_chart_guides.geojson"
     assert guides.exists()
+
+
+def test_main_writes_pie_size_legend_and_frames(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    state_dir = input_root / "bayern"
+    state_dir.mkdir(parents=True)
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "Gemeindeschluessel": ["12345000"],
+            "power_kw": [1_000_000],
+            "commissioning_date": ["2020"],
+            "energy_source_label": ["2495"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(state_dir / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+
+    mod.main()
+
+    circles_path = out_dir / "de_pie_size_legend_circles.geojson"
+    labels_path = out_dir / "de_pie_size_legend_labels.geojson"
+    frames_path = out_dir / "de_legend_frames.geojson"
+
+    assert circles_path.exists()
+    assert labels_path.exists()
+    assert frames_path.exists()
+
+    circles = gpd.read_file(circles_path)
+    labels = gpd.read_file(labels_path)
+    frames = gpd.read_file(frames_path)
+
+    assert len(circles) == len(mod.PIE_LEGEND_VALUES_GW)
+    assert set(circles["legend_gw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_GW)
+    assert circles["radius_m"].min() >= mod.LEGEND_R_MIN_M
+    assert circles["radius_m"].max() <= mod.LEGEND_R_MAX_M
+
+    assert "title" in set(labels["kind"])
+    assert mod.UNIFIED_TITLE_TEXT["pie_size_legend"] in set(labels["legend_label"])
+
+    assert set(frames["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_main_energy_legend_has_title_and_expected_labels(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    state_dir = input_root / "bayern"
+    state_dir.mkdir(parents=True)
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "Gemeindeschluessel": ["12345000"],
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "energy_source_label": ["2495"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(state_dir / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+
+    mod.main()
+
+    legend = gpd.read_file(out_dir / "de_energy_legend_points.geojson")
+
+    assert "legend_title" in set(legend["energy_type"])
+    assert mod.UNIFIED_TITLE_TEXT["energy_legend"] in set(legend["legend_label"])
+    assert {"Photovoltaics", "Onshore Wind Energy", "Hydropower", "Biogas", "Battery", "Others"}.issubset(
+        set(legend["legend_label"])
+    )
+
+
+def test_column_chart_labels_use_state_abbrev_not_only_numbers(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    state_dir = input_root / "bayern"
+    state_dir.mkdir(parents=True)
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "Gemeindeschluessel": ["12345000"],
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "energy_source_label": ["2495"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(state_dir / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+
+    mod.main()
+
+    labels = gpd.read_file(out_dir / "de_state_totals_columnChart_labels.geojson")
+
+    state_rows = labels[
+        (labels["kind"] == "state_label")
+        & (labels["state_number"] == 2)
+    ]
+
+    assert len(state_rows) >= 1
+    assert set(state_rows["state_abbrev"]) == {"BY"}
+
+    title_rows = labels[labels["kind"] == "title"]
+    assert len(title_rows) == 1
+    assert title_rows.iloc[0]["year_bin_label"] == mod.UNIFIED_TITLE_TEXT["column_chart"]
+
+
+def test_radius_constants_match_manual_landkreis_setup():
+    assert mod.R_MIN_M == 5000.0
+    assert mod.R_MAX_M == 30000.0
+    assert mod.LEGEND_R_MIN_M == 5000.0
+    assert mod.LEGEND_R_MAX_M == 30000.0

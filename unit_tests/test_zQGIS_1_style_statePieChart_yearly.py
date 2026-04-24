@@ -306,9 +306,8 @@ class FakeVectorLayer:
         is_valid=True,
         field_names=None,
         feature_count=0,
-        is_memory=False,
     ):
-        self._source = source
+        self._source = str(source)
         self._name = name
         self._provider = provider
         self._is_valid = is_valid
@@ -321,7 +320,6 @@ class FakeVectorLayer:
         self._features = []
         self._feature_count = feature_count
         self._provider_obj = FakeProvider(self)
-        self._is_memory = is_memory
 
     def name(self):
         return self._name
@@ -502,9 +500,6 @@ def install_fake_qgis(monkeypatch, project, vector_layer_factory):
 
 
 def build_vector_layer_factory(layer_defs, created_layers):
-    """
-    layer_defs maps source string -> config dict
-    """
     def factory(source, name, provider):
         source_str = str(source)
         cfg = layer_defs.get(source_str, {})
@@ -515,11 +510,12 @@ def build_vector_layer_factory(layer_defs, created_layers):
             is_valid=cfg.get("is_valid", True),
             field_names=cfg.get("field_names", []),
             feature_count=cfg.get("feature_count", 0),
-            is_memory=(provider == "memory"),
         )
         created_layers.append(layer)
         return layer
+
     return factory
+
 
 def import_module_with_fakes(
     monkeypatch,
@@ -538,8 +534,7 @@ def import_module_with_fakes(
 
     project = FakeProject()
     created_layers = []
-    layer_defs = layer_defs or {}
-    vector_factory = build_vector_layer_factory(layer_defs, created_layers)
+    vector_factory = build_vector_layer_factory(layer_defs or {}, created_layers)
 
     install_fake_qgis(monkeypatch, project, vector_factory)
 
@@ -567,10 +562,17 @@ def import_module_with_fakes(
 # -------------------------------------------------------------------
 
 ROOT_DIR = r"C:\Users\jo73vure\Desktop\powerPlantProject\data\geojson\pieCharts\state_pies_yearly"
+
 YEARLY_CHART_PATH = ROOT_DIR + r"\de_yearly_totals_chart.geojson"
 GUIDES_PATH = ROOT_DIR + r"\de_yearly_totals_chart_guides.geojson"
+
 STATE_COL_BARS_PATH = ROOT_DIR + r"\de_state_totals_columnChart_bars.geojson"
 STATE_COL_LABELS_PATH = ROOT_DIR + r"\de_state_totals_columnChart_labels.geojson"
+
+PIE_SIZE_LEGEND_CIRCLES_PATH = ROOT_DIR + r"\de_pie_size_legend_circles.geojson"
+PIE_SIZE_LEGEND_LABELS_PATH = ROOT_DIR + r"\de_pie_size_legend_labels.geojson"
+LEGEND_FRAMES_PATH = ROOT_DIR + r"\de_legend_frames.geojson"
+
 OVERVIEW_PATH = ROOT_DIR + r"\de_year_overview_points.geojson"
 LEGEND_PATH = ROOT_DIR + r"\de_energy_legend_points.geojson"
 
@@ -581,64 +583,37 @@ LEGEND_PATH = ROOT_DIR + r"\de_energy_legend_points.geojson"
 
 @pytest.fixture
 def minimal_import(monkeypatch):
-    """
-    Import module with ROOT_DIR missing so main() exits early.
-    This lets helper/style functions be tested safely after import.
-    """
     module, project, created_layers = import_module_with_fakes(
         monkeypatch,
         existing_paths=set(),
         dir_children={},
         file_contents={},
         layer_defs={},
-        yearly_chart_json_for_open=None,
     )
     return module, project, created_layers
 
 
 # -------------------------------------------------------------------
-# Tests: import-time yearly totals computation
+# Import-time yearly totals computation
 # -------------------------------------------------------------------
 
 def test_import_computes_period_and_cumulative_gw(monkeypatch):
     chart = {
         "features": [
-            {
-                "properties": {
-                    "year_bin_slug": "pre_1990",
-                    "value_anchor": 1,
-                    "total_kw": 500000,
-                }
-            },
-            {
-                "properties": {
-                    "year_bin_slug": "1991_1992",
-                    "value_anchor": "1",
-                    "total_kw": 2000000,
-                }
-            },
-            {
-                "properties": {
-                    "year_bin_slug": "title",
-                    "value_anchor": 1,
-                    "total_kw": 999999999,
-                }
-            },
+            {"properties": {"year_bin_slug": "pre_1990", "value_anchor": 1, "total_kw": 500000}},
+            {"properties": {"year_bin_slug": "1991_1992", "value_anchor": "1", "total_kw": 2000000}},
+            {"properties": {"year_bin_slug": "title", "value_anchor": 1, "total_kw": 999999999}},
         ]
     }
 
-    module, project, created_layers = import_module_with_fakes(
+    module, _, _ = import_module_with_fakes(
         monkeypatch,
         existing_paths={YEARLY_CHART_PATH},
-        dir_children={},
-        file_contents={},
-        layer_defs={},
         yearly_chart_json_for_open=chart,
     )
 
     assert module.CUM_BIN_GW["pre_1990"] == pytest.approx(0.5)
     assert module.CUM_BIN_GW["1991_1992"] == pytest.approx(2.0)
-
     assert module.PER_BIN_GW["pre_1990"] == pytest.approx(0.5)
     assert module.PER_BIN_GW["1991_1992"] == pytest.approx(1.5)
 
@@ -646,24 +621,12 @@ def test_import_computes_period_and_cumulative_gw(monkeypatch):
 def test_import_skips_invalid_total_kw_rows(monkeypatch):
     chart = {
         "features": [
-            {
-                "properties": {
-                    "year_bin_slug": "pre_1990",
-                    "value_anchor": 1,
-                    "total_kw": "not_a_number",
-                }
-            },
-            {
-                "properties": {
-                    "year_bin_slug": "1991_1992",
-                    "value_anchor": 0,
-                    "total_kw": 1000000,
-                }
-            },
+            {"properties": {"year_bin_slug": "pre_1990", "value_anchor": 1, "total_kw": "bad"}},
+            {"properties": {"year_bin_slug": "1991_1992", "value_anchor": 0, "total_kw": 1000000}},
         ]
     }
 
-    module, project, created_layers = import_module_with_fakes(
+    module, _, _ = import_module_with_fakes(
         monkeypatch,
         existing_paths={YEARLY_CHART_PATH},
         yearly_chart_json_for_open=chart,
@@ -674,7 +637,7 @@ def test_import_skips_invalid_total_kw_rows(monkeypatch):
 
 
 # -------------------------------------------------------------------
-# Tests: helper functions
+# Helper functions
 # -------------------------------------------------------------------
 
 @pytest.mark.parametrize(
@@ -705,7 +668,6 @@ def test_ensure_group_reuses_existing_group(minimal_import):
     grp2 = module.ensure_group(project.root, "A")
 
     assert grp1 is grp2
-    assert "A" in project.root.groups
 
 
 def test_ensure_group_with_non_group_parent_uses_root(minimal_import):
@@ -716,45 +678,63 @@ def test_ensure_group_with_non_group_parent_uses_root(minimal_import):
     assert grp is project.root.groups["RootChild"]
 
 
+def test_make_unified_title_format_uses_shared_bold_style(minimal_import):
+    module, _, _ = minimal_import
+
+    fmt = module.make_unified_title_format()
+
+    assert fmt.font.family == module.UNIFIED_TITLE_FONT_FAMILY
+    assert fmt.font.size == module.UNIFIED_TITLE_FONT_SIZE
+    assert fmt.font.weight == FakeQFont.Bold
+    assert fmt.size == module.UNIFIED_TITLE_FONT_SIZE
+    assert fmt.buffer.enabled is False
+
+
 def test_pretty_year_label_reads_meta_if_present(minimal_import):
     module, _, _ = minimal_import
 
     slug_dir = ROOT_DIR + r"\1991_1992"
     meta_path = slug_dir + r"\state_pie_style_meta_1991_1992.json"
+
     FakePath.existing_paths.add(meta_path)
     FakePath.file_contents[meta_path] = json.dumps({"year_bin": "Custom Label"})
 
-    label = module.pretty_year_label(FakePath(slug_dir))
-    assert label == "Custom Label"
+    assert module.pretty_year_label(FakePath(slug_dir)) == "Custom Label"
 
 
 def test_pretty_year_label_falls_back_to_range(minimal_import):
     module, _, _ = minimal_import
+
     assert module.pretty_year_label(FakePath(ROOT_DIR + r"\1993_1994")) == "1993–1994"
 
 
 def test_pretty_year_label_handles_pre_1990(minimal_import):
     module, _, _ = minimal_import
+
     assert module.pretty_year_label(FakePath(ROOT_DIR + r"\pre_1990")) == "≤1990 — Pre-EEG"
 
 
 def test_pretty_year_label_returns_slug_for_unknown(minimal_import):
     module, _, _ = minimal_import
+
     assert module.pretty_year_label(FakePath(ROOT_DIR + r"\weird_slug")) == "weird_slug"
 
 
 def test_bin_sort_key_orders_pre_1990_first(minimal_import):
     module, _, _ = minimal_import
+
     assert module.bin_sort_key(FakePath(ROOT_DIR + r"\pre_1990")) == (-1, -1)
 
 
 def test_bin_sort_key_orders_numeric_ranges(minimal_import):
     module, _, _ = minimal_import
+
     assert module.bin_sort_key(FakePath(ROOT_DIR + r"\2001_2002")) == (2001, 2002)
 
 
 def test_bin_sort_key_puts_unknown_last(minimal_import):
     module, _, _ = minimal_import
+
     assert module.bin_sort_key(FakePath(ROOT_DIR + r"\abc")) == (9999, "abc")
 
 
@@ -777,7 +757,7 @@ def test_make_rect_feature_builds_polygon_and_kind(minimal_import):
 
 
 # -------------------------------------------------------------------
-# Tests: style functions
+# Style functions
 # -------------------------------------------------------------------
 
 def test_style_year_overview_layer_sets_invisible_marker_and_labels(minimal_import):
@@ -810,31 +790,37 @@ def test_style_state_column_bars_layer_sets_categories_and_default_symbol(minima
     assert lyr.repaintCalled() is True
 
 
-def test_style_state_column_labels_layer_builds_three_rules(minimal_import):
+def test_style_state_column_labels_layer_uses_state_abbrev_and_title_rule(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "labels", "ogr")
 
     module.style_state_column_labels_layer(lyr)
 
-    renderer = lyr.renderer()
-    assert isinstance(renderer, FakeSingleSymbolRenderer)
-    assert renderer.symbol.props["color"] == "0,0,0,0"
-
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
+
     rules = labeling.root_rule.children
     assert len(rules) == 3
+
     assert rules[0].filter_expression == "\"kind\" = 'state_label'"
+    assert rules[0].pal.fieldName == "CASE WHEN \"kind\" = 'state_label' THEN \"state_abbrev\" ELSE NULL END"
+    assert rules[0].pal.format.font.weight == FakeQFont.Bold
+
     assert rules[1].filter_expression == "\"kind\" = 'value_label'"
+    assert "format_number" in rules[1].pal.fieldName
+
     assert rules[2].filter_expression == "\"kind\" = 'title'"
+    assert rules[2].pal.format.font.weight == FakeQFont.Bold
+
     assert lyr.labelsEnabled() is True
     assert lyr.repaintCalled() is True
 
 
-def test_style_state_pie_layer_sets_categorized_renderer(minimal_import):
+def test_style_state_pie_layer_sets_categorized_renderer_without_slice_labels(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "pie", "ogr")
 
+    module.SHOW_SLICE_LABELS = False
     module.style_state_pie_layer(lyr)
 
     renderer = lyr.renderer()
@@ -845,11 +831,26 @@ def test_style_state_pie_layer_sets_categorized_renderer(minimal_import):
     assert lyr.repaintCalled() is True
 
 
-def test_style_center_layer_without_numbers_disables_labels(minimal_import):
+def test_style_state_pie_layer_can_enable_slice_labels(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "pie", "ogr")
+
+    module.SHOW_SLICE_LABELS = True
+    try:
+        module.style_state_pie_layer(lyr)
+    finally:
+        module.SHOW_SLICE_LABELS = False
+
+    assert lyr.labelsEnabled() is True
+    assert isinstance(lyr.labeling(), FakeQgsVectorLayerSimpleLabeling)
+    assert lyr.labeling().pal.fieldName == 'CASE WHEN "label_anchor"=1 THEN "state_abbrev" ELSE NULL END'
+
+
+def test_style_center_layer_without_abbrev_disables_labels(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "centers", "ogr")
 
-    module.style_center_layer(lyr, label_numbers=False)
+    module.style_center_layer(lyr, label_abbrev=False)
 
     assert isinstance(lyr.renderer(), FakeSingleSymbolRenderer)
     assert lyr.labelsEnabled() is False
@@ -857,14 +858,15 @@ def test_style_center_layer_without_numbers_disables_labels(minimal_import):
     assert lyr.repaintCalled() is True
 
 
-def test_style_center_layer_with_numbers_builds_offset_rules(minimal_import):
+def test_style_center_layer_with_abbrev_builds_offset_rules(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "centers", "ogr")
 
-    module.style_center_layer(lyr, label_numbers=True)
+    module.style_center_layer(lyr, label_abbrev=True)
 
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
+
     rules = labeling.root_rule.children
     assert len(rules) == 5
 
@@ -874,8 +876,7 @@ def test_style_center_layer_with_numbers_builds_offset_rules(minimal_import):
     assert rules[3].filter_expression == '"state_number" = 2'
     assert rules[4].filter_expression == '"state_number" IN (10,15)'
 
-    assert rules[1].pal.xOffset == -3.5
-    assert rules[1].pal.yOffset == -2.0
+    assert rules[0].pal.fieldName == "state_abbrev"
     assert rules[3].pal.xOffset == 11.0
     assert rules[3].pal.yOffset == 4.0
 
@@ -883,7 +884,7 @@ def test_style_center_layer_with_numbers_builds_offset_rules(minimal_import):
     assert lyr.repaintCalled() is True
 
 
-def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import):
+def test_style_energy_legend_layer_adds_palette_note_and_title(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "legend", "ogr")
 
@@ -892,13 +893,70 @@ def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import)
     renderer = lyr.renderer()
     assert isinstance(renderer, FakeCategorizedSymbolRenderer)
     assert renderer.field_name == "energy_type"
-    assert len(renderer.categories) == len(module.PALETTE) + 1
-    assert renderer.categories[-1].value == "legend_note"
+
+    values = [cat.value for cat in renderer.categories]
+    assert set(module.PALETTE).issubset(set(values))
+    assert "legend_note" in values
+    assert "legend_title" in values
 
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
-    assert len(labeling.root_rule.children) == 7
+
+    rules = labeling.root_rule.children
+    assert len(rules) == 8
+    assert rules[-1].filter_expression == '"energy_type" = \'legend_title\''
+    assert rules[-1].pal.format.font.weight == FakeQFont.Bold
+
     assert lyr.labelsEnabled() is True
+    assert lyr.repaintCalled() is True
+
+
+def test_style_pie_size_legend_circles_layer_sets_outline_only_symbol(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "pie_size_circles", "ogr")
+
+    module.style_pie_size_legend_circles_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeSingleSymbolRenderer)
+    assert renderer.symbol.props["color"] == "0,0,0,0"
+    assert renderer.symbol.props["outline_color"] == "90,90,90,255"
+    assert renderer.symbol.output_unit == FakeQgsUnitTypes.RenderMillimeters
+    assert lyr.labelsEnabled() is False
+    assert lyr.repaintCalled() is True
+
+
+def test_style_pie_size_legend_labels_layer_builds_title_and_item_rules(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "pie_size_labels", "ogr")
+
+    module.style_pie_size_legend_labels_layer(lyr)
+
+    labeling = lyr.labeling()
+    assert isinstance(labeling, FakeQgsRuleBasedLabeling)
+
+    rules = labeling.root_rule.children
+    assert len(rules) == 2
+    assert rules[0].filter_expression == '"kind" = \'title\''
+    assert rules[0].pal.format.font.weight == FakeQFont.Bold
+    assert rules[1].filter_expression == '"kind" = \'item\''
+
+    assert lyr.labelsEnabled() is True
+    assert lyr.repaintCalled() is True
+
+
+def test_style_legend_frames_layer_sets_transparent_frame(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "legend_frames", "ogr")
+
+    module.style_legend_frames_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeSingleSymbolRenderer)
+    assert renderer.symbol.props["color"] == "0,0,0,0"
+    assert renderer.symbol.props["outline_color"] == "150,150,150,255"
+    assert renderer.symbol.output_unit == FakeQgsUnitTypes.RenderMillimeters
+    assert lyr.labelsEnabled() is False
     assert lyr.repaintCalled() is True
 
 
@@ -917,21 +975,21 @@ def test_style_yearly_chart_layer_with_energy_field_uses_categorized_renderer(mi
     assert isinstance(renderer, FakeCategorizedSymbolRenderer)
     assert renderer.field_name == "energy_type"
 
-    labeling = lyr.labeling()
-    assert isinstance(labeling, FakeQgsRuleBasedLabeling)
-    rules = labeling.root_rule.children
+    rules = lyr.labeling().root_rule.children
     assert len(rules) == 4
     assert rules[0].filter_expression == '"label_anchor" = 1'
     assert rules[1].filter_expression == '"value_anchor" = 1'
     assert rules[2].filter_expression == '"year_bin_slug" = \'title\''
+    assert rules[2].pal.format.font.weight == FakeQFont.Bold
     assert rules[3].filter_expression == '"year_bin_slug" = \'unit\''
+
     assert lyr.labelsEnabled() is True
     assert lyr.repaintCalled() is True
 
 
 def test_style_yearly_chart_layer_without_energy_field_falls_back_to_single_symbol(minimal_import):
     module, _, _ = minimal_import
-    lyr = FakeVectorLayer("x", "row_chart", "ogr", field_names=["foo", "bar"])
+    lyr = FakeVectorLayer("x", "row_chart", "ogr", field_names=["foo"])
 
     module.style_yearly_chart_layer(lyr)
 
@@ -958,11 +1016,11 @@ def test_style_yearly_guides_layer_sets_dash_and_mm_units(minimal_import):
 
 
 # -------------------------------------------------------------------
-# Tests: chart frame / heading builders
+# Chart frame / heading builders
 # -------------------------------------------------------------------
 
 def test_add_chart_frames_creates_memory_layer_with_two_rectangles(minimal_import):
-    module, project, created_layers = minimal_import
+    module, project, _ = minimal_import
     parent = project.root.addGroup("Parent")
 
     module.add_chart_frames(parent)
@@ -981,7 +1039,7 @@ def test_add_chart_frames_creates_memory_layer_with_two_rectangles(minimal_impor
 
 
 def test_add_chart_frames_returns_early_when_disabled(minimal_import):
-    module, project, created_layers = minimal_import
+    module, project, _ = minimal_import
     parent = project.root.addGroup("Parent")
 
     original = module.DRAW_CHART_FRAMES
@@ -996,13 +1054,14 @@ def test_add_chart_frames_returns_early_when_disabled(minimal_import):
 
 
 def test_add_year_heading_creates_two_features_and_labels(minimal_import):
-    module, project, created_layers = minimal_import
+    module, project, _ = minimal_import
     parent = project.root.addGroup("Bin")
     module.PER_BIN_GW["1991_1992"] = 1.2345
 
     module.add_year_heading(parent, "1991_1992", "1991–1992")
 
     assert len(project.added_layers) == 1
+
     layer, add_to_root = project.added_layers[0]
     assert add_to_root is False
     assert layer.name() == "1991_1992_heading"
@@ -1019,7 +1078,7 @@ def test_add_year_heading_creates_two_features_and_labels(minimal_import):
 
 
 def test_add_year_heading_uses_na_when_period_missing(minimal_import):
-    module, project, created_layers = minimal_import
+    module, project, _ = minimal_import
     parent = project.root.addGroup("Bin")
 
     module.add_year_heading(parent, "missing_slug", "Missing")
@@ -1030,11 +1089,11 @@ def test_add_year_heading_uses_na_when_period_missing(minimal_import):
 
 
 # -------------------------------------------------------------------
-# Tests: main()
+# main()
 # -------------------------------------------------------------------
 
 def test_main_returns_early_when_root_dir_missing(monkeypatch, capsys):
-    module, project, created_layers = import_module_with_fakes(
+    module, project, _ = import_module_with_fakes(
         monkeypatch,
         existing_paths=set(),
         dir_children={},
@@ -1046,15 +1105,18 @@ def test_main_returns_early_when_root_dir_missing(monkeypatch, capsys):
     assert project.added_layers == []
 
 
-def test_main_builds_groups_and_loads_bin_layers(monkeypatch):
+def test_main_builds_groups_and_loads_current_layers(monkeypatch):
     existing_paths = {
         ROOT_DIR,
         YEARLY_CHART_PATH,
         GUIDES_PATH,
         STATE_COL_BARS_PATH,
         STATE_COL_LABELS_PATH,
-        LEGEND_PATH,
         OVERVIEW_PATH,
+        LEGEND_PATH,
+        PIE_SIZE_LEGEND_CIRCLES_PATH,
+        PIE_SIZE_LEGEND_LABELS_PATH,
+        LEGEND_FRAMES_PATH,
         ROOT_DIR + r"\pre_1990",
         ROOT_DIR + r"\1991_1992",
         ROOT_DIR + r"\pre_1990\de_state_pie_pre_1990.geojson",
@@ -1075,16 +1137,21 @@ def test_main_builds_groups_and_loads_bin_layers(monkeypatch):
     layer_defs = {
         OVERVIEW_PATH: {"field_names": ["year_bin_label"]},
         LEGEND_PATH: {"field_names": ["energy_type", "legend_label"]},
+        PIE_SIZE_LEGEND_CIRCLES_PATH: {"field_names": ["legend_gw", "radius_m"]},
+        PIE_SIZE_LEGEND_LABELS_PATH: {"field_names": ["kind", "legend_label"]},
+        LEGEND_FRAMES_PATH: {"field_names": ["frame_type"]},
         YEARLY_CHART_PATH: {
             "field_names": ["energy_type", "year_bin_slug", "label_anchor", "value_anchor", "total_kw"]
         },
         GUIDES_PATH: {"field_names": ["year_bin_slug"]},
         STATE_COL_BARS_PATH: {"field_names": ["year_bin_slug", "energy_type"], "feature_count": 3},
-        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "total_kw", "year_bin_label"]},
+        STATE_COL_LABELS_PATH: {
+            "field_names": ["year_bin_slug", "kind", "state_number", "state_abbrev", "total_kw", "year_bin_label"]
+        },
         ROOT_DIR + r"\pre_1990\de_state_pie_pre_1990.geojson": {"field_names": ["energy_type"]},
-        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number"]},
+        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number", "state_abbrev"]},
         ROOT_DIR + r"\1991_1992\de_state_pie_1991_1992.geojson": {"field_names": ["energy_type"]},
-        ROOT_DIR + r"\1991_1992\de_state_pies_1991_1992.geojson": {"field_names": ["state_number"]},
+        ROOT_DIR + r"\1991_1992\de_state_pies_1991_1992.geojson": {"field_names": ["state_number", "state_abbrev"]},
     }
 
     chart = {
@@ -1094,7 +1161,7 @@ def test_main_builds_groups_and_loads_bin_layers(monkeypatch):
         ]
     }
 
-    module, project, created_layers = import_module_with_fakes(
+    module, project, _ = import_module_with_fakes(
         monkeypatch,
         existing_paths=existing_paths,
         dir_children=dir_children,
@@ -1105,13 +1172,14 @@ def test_main_builds_groups_and_loads_bin_layers(monkeypatch):
     parent_group = project.root.findGroup("state_pies (yearly)")
     assert parent_group is not None
 
-    # Overview + legend + frames should exist on parent group
     parent_layer_names = [layer.name() for layer in parent_group.layers]
     assert "chart_frames" in parent_layer_names
     assert "year_overview" in parent_layer_names
     assert "energy_legend" in parent_layer_names
+    assert "pie_size_legend_circles" in parent_layer_names
+    assert "pie_size_legend_labels" in parent_layer_names
+    assert "legend_frames" in parent_layer_names
 
-    # Bin groups should be sorted naturally
     assert list(parent_group.groups.keys()) == ["≤1990 — Pre-EEG", "1991–1992"]
 
     first_bin = parent_group.findGroup("≤1990 — Pre-EEG")
@@ -1136,21 +1204,18 @@ def test_main_builds_groups_and_loads_bin_layers(monkeypatch):
     assert "state_columnLabels_1991_1992" in second_names
     assert "1991_1992_heading" in second_names
 
-    # Verify row chart subset expressions
     row_pre = next(layer for layer in first_bin.layers if layer.name() == "yearly_rowChart_total_power_pre_1990")
     row_1991 = next(layer for layer in second_bin.layers if layer.name() == "yearly_rowChart_total_power_1991_1992")
 
     assert row_pre.subsetString() == "(\"year_bin_slug\" IN ('pre_1990') OR \"year_bin_slug\" IN ('title','unit'))"
     assert row_1991.subsetString() == "(\"year_bin_slug\" IN ('pre_1990','1991_1992') OR \"year_bin_slug\" IN ('title','unit'))"
 
-    # Verify guides subset expressions
     guides_pre = next(layer for layer in first_bin.layers if layer.name() == "yearly_rowChart_guides_pre_1990")
     guides_1991 = next(layer for layer in second_bin.layers if layer.name() == "yearly_rowChart_guides_1991_1992")
 
     assert guides_pre.subsetString() == "\"year_bin_slug\" IN ('pre_1990')"
     assert guides_1991.subsetString() == "\"year_bin_slug\" IN ('pre_1990','1991_1992')"
 
-    # Verify state column subsets
     bars_pre = next(layer for layer in first_bin.layers if layer.name() == "state_columnBars_pre_1990")
     labels_pre = next(layer for layer in first_bin.layers if layer.name() == "state_columnLabels_pre_1990")
 
@@ -1171,16 +1236,17 @@ def test_main_prints_warning_when_energy_legend_missing(monkeypatch, capsys):
     }
 
     dir_children = {
-        ROOT_DIR: [ROOT_DIR + r"\pre_1990"]
+        ROOT_DIR: [ROOT_DIR + r"\pre_1990"],
+        ROOT_DIR + r"\pre_1990": [],
     }
 
     layer_defs = {
         YEARLY_CHART_PATH: {"field_names": ["energy_type", "year_bin_slug", "label_anchor", "value_anchor", "total_kw"]},
         GUIDES_PATH: {"field_names": ["year_bin_slug"]},
         STATE_COL_BARS_PATH: {"field_names": ["year_bin_slug", "energy_type"], "feature_count": 1},
-        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "total_kw", "year_bin_label"]},
+        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "state_abbrev", "total_kw", "year_bin_label"]},
         ROOT_DIR + r"\pre_1990\de_state_pie_pre_1990.geojson": {"field_names": ["energy_type"]},
-        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number"]},
+        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number", "state_abbrev"]},
     }
 
     chart = {
@@ -1212,14 +1278,15 @@ def test_main_prints_warning_when_yearly_chart_missing(monkeypatch, capsys):
     }
 
     dir_children = {
-        ROOT_DIR: [ROOT_DIR + r"\pre_1990"]
+        ROOT_DIR: [ROOT_DIR + r"\pre_1990"],
+        ROOT_DIR + r"\pre_1990": [],
     }
 
     layer_defs = {
         STATE_COL_BARS_PATH: {"field_names": ["year_bin_slug", "energy_type"], "feature_count": 1},
-        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "total_kw", "year_bin_label"]},
+        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "state_abbrev", "total_kw", "year_bin_label"]},
         ROOT_DIR + r"\pre_1990\de_state_pie_pre_1990.geojson": {"field_names": ["energy_type"]},
-        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number"]},
+        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number", "state_abbrev"]},
     }
 
     import_module_with_fakes(
@@ -1227,7 +1294,6 @@ def test_main_prints_warning_when_yearly_chart_missing(monkeypatch, capsys):
         existing_paths=existing_paths,
         dir_children=dir_children,
         layer_defs=layer_defs,
-        yearly_chart_json_for_open=None,
     )
 
     captured = capsys.readouterr()
@@ -1237,11 +1303,7 @@ def test_main_prints_warning_when_yearly_chart_missing(monkeypatch, capsys):
     )
 
 
-def test_main_hits_current_bug_when_state_column_bars_path_missing(monkeypatch):
-    """
-    This test documents the current bug in the script:
-    bars_lyr is printed after the conditional block even when it was never assigned.
-    """
+def test_main_handles_missing_state_column_bars_path_without_crashing(monkeypatch, capsys):
     existing_paths = {
         ROOT_DIR,
         YEARLY_CHART_PATH,
@@ -1260,9 +1322,9 @@ def test_main_hits_current_bug_when_state_column_bars_path_missing(monkeypatch):
     layer_defs = {
         YEARLY_CHART_PATH: {"field_names": ["energy_type", "year_bin_slug", "label_anchor", "value_anchor", "total_kw"]},
         GUIDES_PATH: {"field_names": ["year_bin_slug"]},
-        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "total_kw", "year_bin_label"]},
+        STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "state_abbrev", "total_kw", "year_bin_label"]},
         ROOT_DIR + r"\pre_1990\de_state_pie_pre_1990.geojson": {"field_names": ["energy_type"]},
-        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number"]},
+        ROOT_DIR + r"\pre_1990\de_state_pies_pre_1990.geojson": {"field_names": ["state_number", "state_abbrev"]},
     }
 
     chart = {
@@ -1271,11 +1333,13 @@ def test_main_hits_current_bug_when_state_column_bars_path_missing(monkeypatch):
         ]
     }
 
-    with pytest.raises(UnboundLocalError):
-        import_module_with_fakes(
-            monkeypatch,
-            existing_paths=existing_paths,
-            dir_children=dir_children,
-            layer_defs=layer_defs,
-            yearly_chart_json_for_open=chart,
-        )
+    import_module_with_fakes(
+        monkeypatch,
+        existing_paths=existing_paths,
+        dir_children=dir_children,
+        layer_defs=layer_defs,
+        yearly_chart_json_for_open=chart,
+    )
+
+    captured = capsys.readouterr()
+    assert "[WARN] STATE_COL_BARS_PATH not found:" in captured.out

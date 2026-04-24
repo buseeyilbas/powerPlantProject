@@ -137,27 +137,6 @@ def test_safe_to_file_basic(tmp_path):
     assert out.exists()
 
 
-def test_safe_to_file_writes_alt_when_permission_error(tmp_path, monkeypatch):
-    gdf = build_points_gdf()
-    out = tmp_path / "out.geojson"
-
-    real_to_file = gpd.GeoDataFrame.to_file
-    called = {"count": 0}
-
-    def fake_to_file(self, path, driver="GeoJSON", *args, **kwargs):
-        called["count"] += 1
-        if called["count"] == 1:
-            raise PermissionError("locked")
-        return real_to_file(self, path, driver=driver, *args, **kwargs)
-
-    monkeypatch.setattr(gpd.GeoDataFrame, "to_file", fake_to_file)
-
-    written = mod.safe_to_file(gdf, out)
-
-    assert written.name == "out_NEW.geojson"
-    assert written.exists()
-
-
 def test_make_pies_for_points_basic(tmp_path):
     gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
 
@@ -320,18 +299,51 @@ def test_make_pies_for_points_calls_repulse_centers(tmp_path, monkeypatch):
 
     assert called["value"] is True
 
+def test_safe_to_file_propagates_permission_error_current_behavior(tmp_path, monkeypatch):
+    gdf = build_points_gdf()
+    out = tmp_path / "out.geojson"
 
-def test_iter_bins_lists_only_valid_bin_dirs(tmp_path, monkeypatch):
-    (tmp_path / "2019_2020").mkdir()
-    (tmp_path / "pre_1990").mkdir()
-    (tmp_path / "not_a_bin").mkdir()
-    (tmp_path / "bayern").mkdir()
+    def fake_to_file(self, path, driver="GeoJSON", *args, **kwargs):
+        raise PermissionError("locked")
 
-    monkeypatch.setattr(mod, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(gpd.GeoDataFrame, "to_file", fake_to_file)
 
-    bins = list(mod.iter_bins())
+    with pytest.raises(PermissionError, match="locked"):
+        mod.safe_to_file(gdf, out)
 
-    assert bins == ["2019_2020", "pre_1990"]
+    assert not out.exists()
+
+def test_main_ignores_directories_without_matching_input_file(tmp_path, monkeypatch):
+    base = tmp_path
+
+    meta = {
+        "min_total_kw": 0,
+        "max_total_kw": 2000,
+        "r_min_m": 10000,
+        "r_max_m": 50000,
+    }
+    (base / "_GLOBAL_size_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    valid_bin = base / "2019_2020"
+    valid_bin.mkdir(parents=True)
+
+    invalid_bin = base / "not_a_bin"
+    invalid_bin.mkdir(parents=True)
+
+    state_dir = base / "bayern"
+    state_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+    gdf.to_file(valid_bin / "de_landkreis_pies_2019_2020.geojson", driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "GLOBAL_META_PATH", base / "_GLOBAL_size_meta.json")
+
+    mod.main()
+
+    assert (valid_bin / "de_landkreis_pie_2019_2020.geojson").exists()
+    assert not (invalid_bin / "de_landkreis_pie_not_a_bin.geojson").exists()
+    assert not (state_dir / "de_landkreis_pie_bayern.geojson").exists()
 
 
 def test_main_runs(tmp_path, monkeypatch):
@@ -502,3 +514,171 @@ def test_main_processes_multiple_bins(tmp_path, monkeypatch):
     assert (base / "2021_2022" / "de_landkreis_pie_2021_2022.geojson").exists()
     assert (base / "test" / "2019_2020" / "de_test_landkreis_pie_2019_2020.geojson").exists()
     assert (base / "test" / "2021_2022" / "de_test_landkreis_pie_2021_2022.geojson").exists()
+
+def test_radius_constants_match_step3_3_global_setup():
+    assert mod.R_MIN_M == 10000.0
+    assert mod.R_MAX_M == 50000.0
+
+
+def test_make_pies_for_points_preserves_location_metadata(tmp_path):
+    gdf = build_points_gdf(
+        state_slug="bayern",
+        kreis_key="12345",
+        kreis_name="Kreis A",
+        total_kw=1000,
+        pv_kw=1000,
+        wind_kw=0,
+    )
+
+    out_file = tmp_path / "out.geojson"
+
+    mod.make_pies_for_points(gdf, 0, 2000, out_file)
+
+    out = gpd.read_file(out_file)
+    row = out.iloc[0]
+
+    assert row["state_slug"] == "bayern"
+    assert row["kreis_key"] == "12345"
+    assert row["kreis_name"] == "Kreis A"
+    assert row["year_bin_slug"] == "2019_2020"
+    assert row["year_bin_label"] == "2019–2020"
+
+
+def test_make_pies_for_points_output_schema_contains_current_fields(tmp_path):
+    gdf = build_points_gdf(
+        total_kw=1_500_000,
+        pv_kw=1_000_000,
+        wind_kw=500_000,
+    )
+
+    out_file = tmp_path / "out.geojson"
+
+    mod.make_pies_for_points(gdf, 0, 2_000_000, out_file)
+
+    out = gpd.read_file(out_file)
+
+    expected_columns = {
+        "state_slug",
+        "kreis_key",
+        "kreis_name",
+        "year_bin_slug",
+        "year_bin_label",
+        "energy_type",
+        "power_kw",
+        "power_gw",
+        "total_gw",
+        "share",
+        "total_kw",
+        "radius_m",
+        "order_id",
+        "label_anchor",
+        "color_r",
+        "color_g",
+        "color_b",
+        "geometry",
+    }
+
+    assert expected_columns.issubset(set(out.columns))
+    assert set(out["energy_type"]) == {"pv_kw", "wind_kw"}
+
+    pv = out[out["energy_type"] == "pv_kw"].iloc[0]
+    wind = out[out["energy_type"] == "wind_kw"].iloc[0]
+
+    assert pv["power_gw"] == pytest.approx(1.0)
+    assert wind["power_gw"] == pytest.approx(0.5)
+    assert pv["total_gw"] == pytest.approx(1.5)
+    assert wind["total_gw"] == pytest.approx(1.5)
+
+
+def test_make_pies_for_points_radius_uses_current_global_range(tmp_path):
+    gdf = build_points_gdf(
+        total_kw=5000,
+        pv_kw=5000,
+        wind_kw=0,
+    )
+
+    out_file = tmp_path / "out.geojson"
+
+    mod.make_pies_for_points(gdf, 0, 5000, out_file)
+
+    out = gpd.read_file(out_file)
+
+    assert out.iloc[0]["radius_m"] == pytest.approx(mod.R_MAX_M)
+
+
+def test_main_keeps_state_outputs_separate_from_all_germany_output(tmp_path, monkeypatch):
+    base = tmp_path
+
+    meta = {
+        "min_total_kw": 0,
+        "max_total_kw": 2000,
+        "r_min_m": 10000,
+        "r_max_m": 50000,
+    }
+    (base / "_GLOBAL_size_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    all_gdf = build_points_gdf(
+        state_slug="bayern",
+        kreis_key="12345",
+        kreis_name="All A",
+        total_kw=1000,
+        pv_kw=1000,
+        wind_kw=0,
+    )
+    all_gdf.to_file(bin_dir / "de_landkreis_pies_2019_2020.geojson", driver="GeoJSON")
+
+    state_dir = base / "bayern" / "2019_2020"
+    state_dir.mkdir(parents=True)
+
+    state_gdf = build_points_gdf(
+        state_slug="bayern",
+        kreis_key="12345",
+        kreis_name="State A",
+        total_kw=1000,
+        pv_kw=1000,
+        wind_kw=0,
+    )
+    state_gdf.to_file(state_dir / "de_bayern_landkreis_pies_2019_2020.geojson", driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "GLOBAL_META_PATH", base / "_GLOBAL_size_meta.json")
+
+    mod.main()
+
+    all_out = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+    state_out = gpd.read_file(state_dir / "de_bayern_landkreis_pie_2019_2020.geojson")
+
+    assert set(all_out["kreis_name"]) == {"All A"}
+    assert set(state_out["kreis_name"]) == {"State A"}
+
+
+def test_main_global_meta_overrides_radius_constants_exactly(tmp_path, monkeypatch):
+    base = tmp_path
+
+    meta = {
+        "min_total_kw": 0,
+        "max_total_kw": 1000,
+        "r_min_m": 11111,
+        "r_max_m": 55555,
+    }
+    (base / "_GLOBAL_size_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+    gdf.to_file(bin_dir / "de_landkreis_pies_2019_2020.geojson", driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "GLOBAL_META_PATH", base / "_GLOBAL_size_meta.json")
+
+    mod.main()
+
+    out = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+
+    assert mod.R_MIN_M == 11111
+    assert mod.R_MAX_M == 55555
+    assert out.iloc[0]["radius_m"] == pytest.approx(55555)

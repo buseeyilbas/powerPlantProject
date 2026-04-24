@@ -262,3 +262,57 @@ def test_pngs_to_gif_raises_when_output_directory_missing(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         mod.pngs_to_gif(png_folder, output, 500)
+
+
+# -------------------------------------------------------------------
+# Duration-based output convention tests
+# -------------------------------------------------------------------
+
+def test_output_gif_convention_for_1s():
+    output = mod.OUTPUT_FOLDER_1 / "thueringen_state_piecharts_gif_1s.gif"
+
+    assert output.name == "thueringen_state_piecharts_gif_1s.gif"
+    assert output.parent == mod.OUTPUT_FOLDER_1
+    assert "1sec_gif" in str(output)
+
+
+def test_output_gif_convention_for_2s():
+    output = mod.OUTPUT_FOLDER_2 / "thueringen_state_piecharts_gif_2s.gif"
+
+    assert output.name == "thueringen_state_piecharts_gif_2s.gif"
+    assert output.parent == mod.OUTPUT_FOLDER_2
+    assert "2sec_gif" in str(output)
+
+
+def test_module_selected_output_matches_current_duration():
+    if mod.FRAME_DURATION_MS == 1000:
+        assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_1 / "thueringen_state_piecharts_gif_1s.gif"
+    elif mod.FRAME_DURATION_MS == 2000:
+        assert mod.OUTPUT_GIF == mod.OUTPUT_FOLDER_2 / "thueringen_state_piecharts_gif_2s.gif"
+    else:
+        pytest.fail(f"Unsupported FRAME_DURATION_MS: {mod.FRAME_DURATION_MS}")
+
+
+def test_pngs_to_gif_supports_both_workflow_durations(tmp_path):
+    png_folder = tmp_path / "pngs"
+    png_folder.mkdir()
+
+    create_dummy_png(png_folder / "a.png")
+    create_dummy_png(png_folder / "b.png")
+
+    out_1s = tmp_path / "thueringen_out_1s.gif"
+    out_2s = tmp_path / "thueringen_out_2s.gif"
+
+    mod.pngs_to_gif(png_folder, out_1s, 1000)
+    mod.pngs_to_gif(png_folder, out_2s, 2000)
+
+    assert out_1s.exists()
+    assert out_2s.exists()
+
+
+def test_png_folder_points_to_thueringen_masked_yearly_exports():
+    assert "thuringen_statePie_masked_yearly" in str(mod.PNG_FOLDER)
+
+
+def test_output_folder_constants_are_distinct():
+    assert mod.OUTPUT_FOLDER_1 != mod.OUTPUT_FOLDER_2

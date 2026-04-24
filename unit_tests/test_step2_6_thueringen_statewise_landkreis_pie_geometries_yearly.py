@@ -562,3 +562,169 @@ def test_main_processes_multiple_bins(tmp_path, monkeypatch):
 
     assert (base / "2019_2020" / "thueringen_landkreis_pie_2019_2020.geojson").exists()
     assert (base / "2021_2022" / "thueringen_landkreis_pie_2021_2022.geojson").exists()
+
+
+def test_radius_constants_match_step2_5_manual_setup():
+    assert mod.R_MIN_M == 9000.0
+    assert mod.R_MAX_M == 20000.0
+
+
+def test_process_one_bin_writes_power_mw_and_total_mw_not_gw(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(
+        total_kw=3_000.0,
+        pv_kw=1_000.0,
+        wind_kw=2_000.0,
+    )
+    infile = bin_dir / "thueringen_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", 0, 3_000)
+
+    out = gpd.read_file(bin_dir / "thueringen_landkreis_pie_2019_2020.geojson")
+
+    assert "power_mw" in out.columns
+    assert "total_mw" in out.columns
+    assert "power_gw" not in out.columns
+    assert "total_gw" not in out.columns
+
+    pv = out[out["energy_type"] == "pv_kw"].iloc[0]
+    wind = out[out["energy_type"] == "wind_kw"].iloc[0]
+
+    assert pv["power_mw"] == pytest.approx(1.0)
+    assert wind["power_mw"] == pytest.approx(2.0)
+    assert pv["total_mw"] == pytest.approx(3.0)
+    assert wind["total_mw"] == pytest.approx(3.0)
+
+
+def test_process_one_bin_preserves_kreis_metadata_fields(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "kreis_slug": ["a"],
+            "kreis_key": ["a"],
+            "kreis_name": ["Kreis A"],
+            "kreis_number": [7],
+            "year_bin_slug": ["2019_2020"],
+            "year_bin_label": ["2019–2020"],
+            "pv_kw": [1000.0],
+            "wind_kw": [0.0],
+            "hydro_kw": [0.0],
+            "battery_kw": [0.0],
+            "biogas_kw": [0.0],
+            "others_kw": [0.0],
+            "total_kw": [1000.0],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    infile = bin_dir / "thueringen_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", 0, 2000)
+
+    out = gpd.read_file(bin_dir / "thueringen_landkreis_pie_2019_2020.geojson")
+
+    row = out.iloc[0]
+    assert row["name"] == "Kreis A"
+    assert row["kreis_name"] == "Kreis A"
+    assert row["kreis_key"] == "a"
+    assert row["kreis_slug"] == "a"
+    assert row["kreis_number"] == 7
+
+
+def test_process_one_bin_output_schema_contains_current_fields(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(
+        kreis_slug="a",
+        kreis_name="A",
+        total_kw=1500.0,
+        pv_kw=1000.0,
+        wind_kw=500.0,
+    )
+    gdf["kreis_number"] = [3]
+
+    infile = bin_dir / "thueringen_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", 0, 2000)
+
+    out = gpd.read_file(bin_dir / "thueringen_landkreis_pie_2019_2020.geojson")
+
+    expected_columns = {
+        "name",
+        "kreis_name",
+        "kreis_key",
+        "kreis_slug",
+        "kreis_number",
+        "energy_type",
+        "power_kw",
+        "power_mw",
+        "share",
+        "total_kw",
+        "total_mw",
+        "radius_m",
+        "order_id",
+        "label_anchor",
+        "year_bin",
+        "year_bin_slug",
+        "color_r",
+        "color_g",
+        "color_b",
+        "geometry",
+    }
+
+    assert expected_columns.issubset(set(out.columns))
+    assert set(out["energy_type"]) == {"pv_kw", "wind_kw"}
+
+
+def test_main_uses_global_meta_min_max_for_radius_scaling(tmp_path, monkeypatch):
+    base = tmp_path
+
+    meta_path = base / "_THUERINGEN_GLOBAL_style_meta.json"
+    meta_path.write_text(
+        json.dumps({"min_total_kw": 0, "max_total_kw": 4000}),
+        encoding="utf-8",
+    )
+
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir()
+
+    gdf = build_points_gdf(
+        total_kw=4000,
+        pv_kw=4000,
+        wind_kw=0,
+    )
+    gdf.to_file(bin_dir / "thueringen_landkreis_pies_2019_2020.geojson", driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "BASE_DIR", base)
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+    monkeypatch.setattr(mod, "GLOBAL_META", meta_path)
+    monkeypatch.setattr(mod, "YEAR_BINS", ["2019_2020"])
+
+    mod.main()
+
+    out = gpd.read_file(bin_dir / "thueringen_landkreis_pie_2019_2020.geojson")
+    assert out.iloc[0]["radius_m"] == pytest.approx(mod.R_MAX_M)

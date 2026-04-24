@@ -277,6 +277,16 @@ def test_assign_kreis_slug_with_fallback_leaves_empty_when_no_match():
     assert result["kreis_slug"].iloc[0] == ""
 
 
+def test_scale_linear_basic():
+    assert mod.scale_linear(50, 0, 100, 10, 20) == pytest.approx(15)
+
+
+def test_make_circle_polygon_lonlat_returns_polygon():
+    poly = mod.make_circle_polygon_lonlat(10.0, 50.0, 1000.0)
+    assert poly.geom_type == "Polygon"
+    assert len(poly.exterior.coords) > 10
+
+
 def test_main_raises_when_no_input(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "INPUT_ROOT", tmp_path)
 
@@ -305,90 +315,112 @@ def test_main_raises_when_no_usable_features(tmp_path, monkeypatch):
         mod.main()
 
 
-# def test_main_basic(tmp_path, monkeypatch):
-#     input_root = tmp_path / "input"
-#     input_root.mkdir()
+def test_main_basic_outputs_and_legends(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
 
-#     gdf = gpd.GeoDataFrame(
-#         {
-#             "power_kw": [1000],
-#             "commissioning_date": ["2020"],
-#             "Landkreis": ["A"],
-#             "energy_source_label": ["2495"],
-#         },
-#         geometry=[Point(0.5, 0.5)],
-#         crs="EPSG:4326",
-#     )
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "Landkreis": ["A"],
+            "energy_source_label": ["2495"],
+        },
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    file_path = input_root / "plants.geojson"
+    gdf.to_file(file_path, driver="GeoJSON")
 
-#     file_path = input_root / "plants.geojson"
-#     gdf.to_file(file_path, driver="GeoJSON")
+    centers = gpd.GeoDataFrame(
+        {"landkreis_slug": ["a"]},
+        geometry=[Point(0.5, 0.5)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
 
-#     centers = gpd.GeoDataFrame(
-#         {"landkreis_slug": ["a"]},
-#         geometry=[Point(0.5, 0.5)],
-#         crs="EPSG:4326",
-#     )
-#     centers_path = tmp_path / "centers.geojson"
-#     centers.to_file(centers_path, driver="GeoJSON")
+    poly = gpd.GeoDataFrame(
+        {
+            "NAME_1": ["Thüringen"],
+            "NAME_2": ["A"],
+        },
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
+        crs="EPSG:4326",
+    )
+    poly_path = tmp_path / "gadm.json"
+    poly.to_file(poly_path, driver="GeoJSON")
 
-#     poly = gpd.GeoDataFrame(
-#         {
-#             "NAME_1": ["Thüringen"],
-#             "NAME_2": ["A"],
-#         },
-#         geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
-#         crs="EPSG:4326",
-#     )
-#     poly_path = tmp_path / "gadm.json"
-#     poly.to_file(poly_path, driver="GeoJSON")
+    fixed_base = tmp_path / "fixed"
+    fixed_base.mkdir()
+    fixed_center = gpd.GeoDataFrame(
+        {"state_name": ["Thüringen"]},
+        geometry=[Point(10.0, 50.0)],
+        crs="EPSG:4326",
+    )
+    fixed_center.to_file(fixed_base / "thueringen_state_pies.geojson", driver="GeoJSON")
 
-#     fixed_base = tmp_path / "fixed"
-#     fixed_base.mkdir()
-#     fixed_center = gpd.GeoDataFrame(
-#         {"state_name": ["Thüringen"]},
-#         geometry=[Point(10.0, 50.0)],
-#         crs="EPSG:4326",
-#     )
-#     fixed_center.to_file(fixed_base / "thueringen_state_pies.geojson", driver="GeoJSON")
+    out_base = tmp_path / "out"
 
-#     monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
-#     monkeypatch.setattr(mod, "OUT_BASE", tmp_path / "out")
-#     monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
-#     monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
-#     monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "GLOBAL_META", out_base / "_GLOBAL_style_meta.json")
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+    monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
+    monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
 
-#     mod.main()
+    mod.main()
 
-#     out_base = tmp_path / "out"
-#     assert out_base.exists()
+    bin_file = out_base / "2019_2020" / "thueringen_state_pies_2019_2020.geojson"
+    assert bin_file.exists()
 
-#     bin_file = out_base / "2019_2020" / "thueringen_state_pies_2019_2020.geojson"
-#     assert bin_file.exists()
+    bin_gdf = gpd.read_file(bin_file)
+    assert len(bin_gdf) == 1
+    row = bin_gdf.iloc[0]
+    assert row["state_name"] == "Thüringen"
+    assert row["state_slug"] == "thueringen"
+    assert row["state_number"] == 16
+    assert row["pv_kw"] == pytest.approx(1000.0)
+    assert row["total_kw"] == pytest.approx(1000.0)
 
-#     bin_gdf = gpd.read_file(bin_file)
-#     assert len(bin_gdf) == 1
-#     row = bin_gdf.iloc[0]
-#     assert row["state_name"] == "Thüringen"
-#     assert row["state_slug"] == "thueringen"
-#     assert row["state_number"] == 16
-#     assert row["pv_kw"] == pytest.approx(1000.0)
-#     assert row["total_kw"] == pytest.approx(1000.0)
+    global_meta = out_base / "_GLOBAL_style_meta.json"
+    assert global_meta.exists()
+    meta_obj = json.loads(global_meta.read_text(encoding="utf-8"))
+    assert meta_obj["min_total_kw"] == pytest.approx(0.0)
+    assert meta_obj["max_total_kw"] == pytest.approx(1000.0)
+    assert meta_obj["radius_min_m"] == mod.LEGEND_R_MIN_M
+    assert meta_obj["radius_max_m"] == mod.LEGEND_R_MAX_M
 
-#     global_meta = out_base / "_GLOBAL_style_meta.json"
-#     assert global_meta.exists()
+    legend_path = out_base / "thueringen_energy_legend_points.geojson"
+    assert legend_path.exists()
+    legend_gdf = gpd.read_file(legend_path)
+    assert "legend_title" in set(legend_gdf["energy_type"])
+    assert "Energy Type Color Legend" in set(legend_gdf["legend_label"])
 
-#     meta_obj = json.loads(global_meta.read_text(encoding="utf-8"))
-#     assert meta_obj["min_total_kw"] == pytest.approx(1000.0)
-#     assert meta_obj["max_total_kw"] == pytest.approx(1000.0)
+    pie_legend_circles = out_base / "thueringen_pie_size_legend_circles.geojson"
+    pie_legend_labels = out_base / "thueringen_pie_size_legend_labels.geojson"
+    legend_frames = out_base / "thueringen_legend_frames.geojson"
 
-#     legend_path = out_base / "thueringen_energy_legend_points.geojson"
-#     assert legend_path.exists()
+    assert pie_legend_circles.exists()
+    assert pie_legend_labels.exists()
+    assert legend_frames.exists()
 
-#     chart_path = out_base / "thueringen_yearly_totals_chart.geojson"
-#     assert chart_path.exists()
+    circles_gdf = gpd.read_file(pie_legend_circles)
+    assert len(circles_gdf) == len(mod.PIE_LEGEND_VALUES_MW)
+    assert set(circles_gdf["legend_mw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_MW)
 
-#     totals_path = out_base / "thueringen_yearly_totals.json"
-#     assert totals_path.exists()
+    labels_gdf = gpd.read_file(pie_legend_labels)
+    assert "title" in set(labels_gdf["kind"])
+    assert "Pie Size Legend" in set(labels_gdf["legend_label"])
+
+    frames_gdf = gpd.read_file(legend_frames)
+    assert set(frames_gdf["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+    chart_path = out_base / "thueringen_yearly_totals_chart.geojson"
+    assert chart_path.exists()
+
+    totals_path = out_base / "thueringen_yearly_totals.json"
+    assert totals_path.exists()
 
 
 def test_main_uses_polygon_fallback_for_landkreis_assignment(tmp_path, monkeypatch):
@@ -436,6 +468,7 @@ def test_main_uses_polygon_fallback_for_landkreis_assignment(tmp_path, monkeypat
 
     monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
     monkeypatch.setattr(mod, "OUT_BASE", tmp_path / "out")
+    monkeypatch.setattr(mod, "GLOBAL_META", tmp_path / "out" / "_GLOBAL_style_meta.json")
     monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
     monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
     monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
@@ -492,17 +525,31 @@ def test_main_filters_out_rows_not_in_centers(tmp_path, monkeypatch):
     )
     fixed_center.to_file(fixed_base / "thueringen_state_pies.geojson", driver="GeoJSON")
 
+    out_base = tmp_path / "out"
+
     monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
-    monkeypatch.setattr(mod, "OUT_BASE", tmp_path / "out")
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "GLOBAL_META", out_base / "_GLOBAL_style_meta.json")
     monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
     monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
     monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
 
     mod.main()
 
-    bin_file = tmp_path / "out" / "2019_2020" / "thueringen_state_pies_2019_2020.geojson"
+    bin_file = out_base / "2019_2020" / "thueringen_state_pies_2019_2020.geojson"
+    assert bin_file.exists()
+
     out = gpd.read_file(bin_file)
+    assert len(out) == 1
     assert out.iloc[0]["total_kw"] == pytest.approx(0.0)
+    assert out.iloc[0]["pv_kw"] == pytest.approx(0.0)
+
+    global_meta = out_base / "_GLOBAL_style_meta.json"
+    assert global_meta.exists()
+
+    meta_obj = json.loads(global_meta.read_text(encoding="utf-8"))
+    assert meta_obj["min_total_kw"] == pytest.approx(0.0)
+    assert meta_obj["max_total_kw"] == pytest.approx(0.0)
 
 
 def test_main_explodes_multipoint(tmp_path, monkeypatch):
@@ -554,6 +601,7 @@ def test_main_explodes_multipoint(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
     monkeypatch.setattr(mod, "OUT_BASE", tmp_path / "out")
+    monkeypatch.setattr(mod, "GLOBAL_META", tmp_path / "out" / "_GLOBAL_style_meta.json")
     monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
     monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
     monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
@@ -564,6 +612,8 @@ def test_main_explodes_multipoint(tmp_path, monkeypatch):
     out = gpd.read_file(bin_file)
     assert out.iloc[0]["pv_kw"] == pytest.approx(400.0)
     assert out.iloc[0]["total_kw"] == pytest.approx(400.0)
+
+
 
 
 # def test_main_uses_mean_center_when_fixed_center_missing(tmp_path, monkeypatch):
@@ -606,6 +656,7 @@ def test_main_explodes_multipoint(tmp_path, monkeypatch):
 
 #     monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
 #     monkeypatch.setattr(mod, "OUT_BASE", tmp_path / "out")
+#     monkeypatch.setattr(mod, "GLOBAL_META", tmp_path / "out" / "_GLOBAL_style_meta.json")
 #     monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
 #     monkeypatch.setattr(mod, "GADM_L2_PATH", poly_path)
 #     monkeypatch.setattr(mod, "BASE_FIXED", fixed_base)
@@ -614,6 +665,10 @@ def test_main_explodes_multipoint(tmp_path, monkeypatch):
 
 #     bin_file = tmp_path / "out" / "2019_2020" / "thueringen_state_pies_2019_2020.geojson"
 #     out = gpd.read_file(bin_file)
+
 #     geom = out.geometry.iloc[0]
+
 #     assert geom.x == pytest.approx(1.0)
 #     assert geom.y == pytest.approx(2.0)
+
+

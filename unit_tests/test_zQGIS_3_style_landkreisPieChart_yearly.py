@@ -15,6 +15,8 @@ import pytest
 MODULE_NAME = "piechart_layer_qgis_scripts.3_style_landkreisPieChart_yearly"
 
 
+
+
 # -------------------------------------------------------------------
 # Fake Qt classes
 # -------------------------------------------------------------------
@@ -426,6 +428,13 @@ LEGEND_PATH = ROOT_DIR + r"\de_energy_legend_points.geojson"
 STATE_COL_BARS_PATH = ROOT_DIR + r"\de_state_totals_columnChart_bars.geojson"
 STATE_COL_LABELS_PATH = ROOT_DIR + r"\de_state_totals_columnChart_labels.geojson"
 
+ENERGY_LEGEND_PATH = ROOT_DIR + r"\de_energy_legend_points.geojson"
+PIE_SIZE_LEGEND_CIRCLES_PATH = ROOT_DIR + r"\de_pie_size_legend_circles.geojson"
+PIE_SIZE_LEGEND_LABELS_PATH = ROOT_DIR + r"\de_pie_size_legend_labels.geojson"
+LEGEND_FRAMES_PATH = ROOT_DIR + r"\de_legend_frames.geojson"
+
+LEGEND_PATH = ENERGY_LEGEND_PATH
+
 
 def clear_module():
     if MODULE_NAME in sys.modules:
@@ -614,7 +623,7 @@ def test_style_pie_polygons_sets_categorized_renderer_and_disables_labels(minima
     assert lyr.repaintCalled() is True
 
 
-def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import):
+def test_style_energy_legend_layer_adds_palette_plus_legend_title(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "legend", "ogr")
 
@@ -624,11 +633,16 @@ def test_style_energy_legend_layer_adds_palette_plus_legend_note(minimal_import)
     assert isinstance(renderer, FakeCategorizedSymbolRenderer)
     assert renderer.field_name == "energy_type"
     assert len(renderer.categories) == len(module.PALETTE) + 1
-    assert renderer.categories[-1].value == "legend_note"
+    assert renderer.categories[-1].value == "legend_title"
 
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
-    assert len(labeling.root_rule.children) == 7
+
+    rules = labeling.root_rule.children
+    assert len(rules) == 7
+    assert rules[-1].filter_expression == "\"energy_type\" = 'legend_title'"
+    assert rules[-1].pal.format.font.weight == FakeQFont.Bold
+
     assert lyr.labelsEnabled() is True
     assert lyr.repaintCalled() is True
 
@@ -878,6 +892,9 @@ def test_main_happy_path_loads_pies_charts_guides_column_chart_and_heading(monke
         GUIDES_PATH,
         STATE_COL_BARS_PATH,
         STATE_COL_LABELS_PATH,
+        PIE_SIZE_LEGEND_CIRCLES_PATH,
+        PIE_SIZE_LEGEND_LABELS_PATH,
+        LEGEND_FRAMES_PATH,
         pie_pre,
         pie_1991,
     }
@@ -890,6 +907,9 @@ def test_main_happy_path_loads_pies_charts_guides_column_chart_and_heading(monke
         GUIDES_PATH: {"field_names": ["year_bin_slug"]},
         STATE_COL_BARS_PATH: {"field_names": ["year_bin_slug", "energy_type"], "feature_count": 3},
         STATE_COL_LABELS_PATH: {"field_names": ["year_bin_slug", "kind", "state_number", "total_kw", "year_bin_label"]},
+        PIE_SIZE_LEGEND_CIRCLES_PATH: {"field_names": ["legend_gw", "radius_m"]},
+        PIE_SIZE_LEGEND_LABELS_PATH: {"field_names": ["kind", "legend_label"]},
+        LEGEND_FRAMES_PATH: {"field_names": ["frame_type"]},
         pie_pre: {"field_names": ["energy_type"]},
         pie_1991: {"field_names": ["energy_type"]},
     }
@@ -915,6 +935,9 @@ def test_main_happy_path_loads_pies_charts_guides_column_chart_and_heading(monke
     parent_layer_names = [layer.name() for layer in parent_group.layers]
     assert "chart_frames" in parent_layer_names
     assert "energy_legend" in parent_layer_names
+    assert "pie_size_legend_circles" in parent_layer_names
+    assert "pie_size_legend_labels" in parent_layer_names
+    assert "legend_frames" in parent_layer_names
 
     assert "≤1990" in parent_group.groups
     assert "1991–1992" in parent_group.groups
@@ -1044,3 +1067,96 @@ def test_main_handles_period_gw_computation_failure(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "[WARN] Could not compute PER_BIN_GW:" in captured.out
+
+
+def test_style_pie_size_legend_circles_layer_sets_outline_only_symbol(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "pie_size_circles", "ogr")
+
+    module.style_pie_size_legend_circles_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeSingleSymbolRenderer)
+    assert renderer.symbol.props["color"] == "0,0,0,0"
+    assert renderer.symbol.props["outline_color"] == "90,90,90,255"
+    assert renderer.symbol.output_unit == FakeQgsUnitTypes.RenderMillimeters
+    assert lyr.labelsEnabled() is False
+    assert lyr.repaintCalled() is True
+
+
+def test_style_pie_size_legend_labels_layer_builds_title_and_item_rules(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "pie_size_labels", "ogr")
+
+    module.style_pie_size_legend_labels_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeSingleSymbolRenderer)
+    assert renderer.symbol.props["color"] == "0,0,0,0"
+
+    labeling = lyr.labeling()
+    assert isinstance(labeling, FakeQgsRuleBasedLabeling)
+
+    rules = labeling.root_rule.children
+    assert len(rules) == 2
+    assert rules[0].filter_expression == "\"kind\" = 'title'"
+    assert rules[0].pal.format.font.weight == FakeQFont.Bold
+    assert rules[1].filter_expression == "\"kind\" = 'item'"
+
+    assert lyr.labelsEnabled() is True
+    assert lyr.repaintCalled() is True
+
+
+def test_style_legend_frames_layer_sets_transparent_frame_style(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "legend_frames", "ogr")
+
+    module.style_legend_frames_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeSingleSymbolRenderer)
+    assert renderer.symbol.props["color"] == "0,0,0,0"
+    assert renderer.symbol.props["outline_color"] == "150,150,150,255"
+    assert renderer.symbol.output_unit == FakeQgsUnitTypes.RenderMillimeters
+    assert lyr.labelsEnabled() is False
+    assert lyr.repaintCalled() is True
+
+
+def test_make_unified_title_format_is_bold_and_shared_size(minimal_import):
+    module, _, _ = minimal_import
+
+    fmt = module.make_unified_title_format()
+
+    assert fmt.font.family == module.UNIFIED_TITLE_FONT_FAMILY
+    assert fmt.font.size == module.UNIFIED_TITLE_FONT_SIZE
+    assert fmt.font.weight == FakeQFont.Bold
+    assert fmt.size == module.UNIFIED_TITLE_FONT_SIZE
+    assert fmt.buffer.enabled is False
+
+
+def test_style_state_column_labels_layer_uses_state_abbrev(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "labels", "ogr")
+
+    module.style_state_column_labels_layer(lyr)
+
+    rules = lyr.labeling().root_rule.children
+    assert rules[0].pal.fieldName == (
+        "CASE WHEN \"kind\" = 'state_label' THEN \"state_abbrev\" ELSE NULL END"
+    )
+    assert rules[0].pal.format.font.weight == FakeQFont.Bold
+    assert rules[2].pal.format.font.weight == FakeQFont.Bold
+
+
+def test_main_warns_when_pie_size_legend_and_frames_missing(monkeypatch, capsys):
+    import_module_with_fakes(
+        monkeypatch,
+        existing_paths={ROOT_DIR},
+        layer_defs={},
+        chart_json=None,
+    )
+
+    captured = capsys.readouterr()
+    assert "[WARN] Pie size legend circles file not found:" in captured.out
+    assert "[WARN] Pie size legend labels file not found:" in captured.out
+    assert "[WARN] Legend frames file not found:" in captured.out

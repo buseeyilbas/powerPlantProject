@@ -598,13 +598,13 @@ def test_style_energy_legend_adds_palette_plus_legend_note(minimal_import):
     module, _, _ = minimal_import
     lyr = FakeVectorLayer("x", "legend", "ogr")
 
-    module.style_energy_legend(lyr)
+    module.style_energy_legend_layer(lyr)
 
     renderer = lyr.renderer()
     assert isinstance(renderer, FakeCategorizedSymbolRenderer)
     assert renderer.field_name == "energy_type"
     assert len(renderer.categories) == len(module.PALETTE) + 1
-    assert renderer.categories[-1].value == "legend_note"
+    assert renderer.categories[-1].value == "legend_title"
 
     labeling = lyr.labeling()
     assert isinstance(labeling, FakeQgsRuleBasedLabeling)
@@ -914,7 +914,7 @@ def test_main_warns_when_legend_missing(monkeypatch, capsys):
     )
 
     captured = capsys.readouterr()
-    assert "[WARN] LEGEND_PATH not found:" in captured.out
+    assert "[WARN] ENERGY_LEGEND_PATH not found:" in captured.out
 
 
 def test_main_warns_when_number_points_missing(monkeypatch, capsys):
@@ -928,17 +928,6 @@ def test_main_warns_when_number_points_missing(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "[WARN] Number points not found:" in captured.out
 
-
-def test_main_warns_when_chart_missing(monkeypatch, capsys):
-    import_module_with_fakes(
-        monkeypatch,
-        existing_paths={ROOT_DIR},
-        layer_defs={},
-        chart_json=None,
-    )
-
-    captured = capsys.readouterr()
-    assert "[WARN] CHART_PATH not found:" in captured.out
 
 
 def test_main_happy_path_loads_all_major_layers(monkeypatch):
@@ -1108,3 +1097,33 @@ def test_main_handles_chart_read_failure(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "[WARN] Could not compute per_bin_mw:" in captured.out
+
+def test_style_energy_legend_adds_palette_plus_title(minimal_import):
+    module, _, _ = minimal_import
+    lyr = FakeVectorLayer("x", "legend", "ogr")
+
+    module.style_energy_legend_layer(lyr)
+
+    renderer = lyr.renderer()
+    assert isinstance(renderer, FakeCategorizedSymbolRenderer)
+    assert renderer.field_name == "energy_type"
+    assert len(renderer.categories) == len(module.PALETTE) + 1
+    assert renderer.categories[-1].value == "legend_title"
+
+    labeling = lyr.labeling()
+    assert isinstance(labeling, FakeQgsRuleBasedLabeling)
+    assert len(labeling.root_rule.children) == 7
+
+    assert lyr.labelsEnabled() is True
+    assert lyr.repaintCalled() is True
+
+def test_main_warns_when_legend_missing(monkeypatch, capsys):
+    import_module_with_fakes(
+        monkeypatch,
+        existing_paths={ROOT_DIR},
+        layer_defs={},
+        chart_json=None,
+    )
+
+    captured = capsys.readouterr()
+    assert "[WARN] ENERGY_LEGEND_PATH not found:" in captured.out

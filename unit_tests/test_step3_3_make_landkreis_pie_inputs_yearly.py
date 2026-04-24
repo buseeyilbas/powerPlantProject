@@ -658,3 +658,248 @@ def test_main_writes_chart_and_legend_outputs(tmp_path, monkeypatch):
     assert (out_dir / "de_state_totals_columnChart_labels.geojson").exists()
     assert (out_dir / "de_state_totals_columnChart_frame.geojson").exists()
     assert (out_dir / "de_energy_legend_points.geojson").exists()
+
+def test_radius_and_legend_constants_match_current_step3_setup():
+    assert mod.R_MIN_M == 10000.0
+    assert mod.R_MAX_M == 50000.0
+    assert mod.LEGEND_R_MIN_M == 10000.0
+    assert mod.LEGEND_R_MAX_M == 50000.0
+    assert mod.PIE_LEGEND_VALUES_GW == [0.5, 1, 2, 5]
+
+
+def test_state_abbrev_mapping_contains_expected_codes():
+    assert mod.STATE_SLUG_TO_ABBREV["bayern"] == "BY"
+    assert mod.STATE_SLUG_TO_ABBREV["thueringen"] == "TH"
+    assert mod.STATE_SLUG_TO_ABBREV["nordrhein-westfalen"] == "NW"
+
+
+def test_write_pie_size_legend_outputs_scaled_gw_legend(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "OUT_DIR", tmp_path)
+
+    mod.write_pie_size_legend(global_min_kw=500_000.0, global_max_kw=5_000_000.0)
+
+    circles_path = tmp_path / "de_pie_size_legend_circles.geojson"
+    labels_path = tmp_path / "de_pie_size_legend_labels.geojson"
+
+    assert circles_path.exists()
+    assert labels_path.exists()
+
+    circles = gpd.read_file(circles_path)
+    labels = gpd.read_file(labels_path)
+
+    assert len(circles) == len(mod.PIE_LEGEND_VALUES_GW)
+    assert set(circles["legend_gw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_GW)
+    assert set(circles["legend_label"]) == {"0.5 GW", "1 GW", "2 GW", "5 GW"}
+
+    assert circles["radius_m"].min() >= mod.LEGEND_R_MIN_M
+    assert circles["radius_m"].max() <= mod.LEGEND_R_MAX_M
+
+    title_rows = labels[labels["kind"] == "title"]
+    assert len(title_rows) == 1
+    assert title_rows.iloc[0]["legend_label"] == mod.UNIFIED_TITLE_TEXT["pie_size_legend"]
+
+
+def test_write_legend_frames_outputs_energy_and_pie_frames(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "OUT_DIR", tmp_path)
+
+    mod.write_legend_frames()
+
+    frames_path = tmp_path / "de_legend_frames.geojson"
+    assert frames_path.exists()
+
+    frames = gpd.read_file(frames_path)
+    assert set(frames["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_main_writes_pie_size_legend_and_legend_frames(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [5_000_000],
+            "commissioning_date": ["2020"],
+            "Gemeindeschluessel": ["12345"],
+            "energy_source_label": ["Photovoltaik"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+            "kreis_name": ["A"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+
+    mod.main()
+
+    assert (out_dir / "de_pie_size_legend_circles.geojson").exists()
+    assert (out_dir / "de_pie_size_legend_labels.geojson").exists()
+    assert (out_dir / "de_legend_frames.geojson").exists()
+
+    circles = gpd.read_file(out_dir / "de_pie_size_legend_circles.geojson")
+    labels = gpd.read_file(out_dir / "de_pie_size_legend_labels.geojson")
+    frames = gpd.read_file(out_dir / "de_legend_frames.geojson")
+
+    assert set(circles["legend_gw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_GW)
+    assert mod.UNIFIED_TITLE_TEXT["pie_size_legend"] in set(labels["legend_label"])
+    assert set(frames["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_main_global_meta_uses_current_radius_constants(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [5_000_000],
+            "commissioning_date": ["2020"],
+            "Gemeindeschluessel": ["12345"],
+            "energy_source_label": ["Photovoltaik"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+            "kreis_name": ["A"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+
+    mod.main()
+
+    meta = json.loads((out_dir / "_GLOBAL_size_meta.json").read_text(encoding="utf-8"))
+
+    assert meta["r_min_m"] == mod.R_MIN_M
+    assert meta["r_max_m"] == mod.R_MAX_M
+    assert meta["r_min_m"] == 10000.0
+    assert meta["r_max_m"] == 50000.0
+
+
+def test_column_chart_labels_use_state_abbrev(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "Gemeindeschluessel": ["12345"],
+            "energy_source_label": ["Photovoltaik"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+            "kreis_name": ["A"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+
+    mod.main()
+
+    labels = gpd.read_file(out_dir / "de_state_totals_columnChart_labels.geojson")
+
+    state_rows = labels[
+        (labels["kind"] == "state_label")
+        & (labels["state_number"] == 2)
+    ]
+
+    assert len(state_rows) >= 1
+    assert set(state_rows["state_abbrev"]) == {"BY"}
+
+    title_rows = labels[labels["kind"] == "title"]
+    assert len(title_rows) == 1
+    assert title_rows.iloc[0]["year_bin_label"] == mod.UNIFIED_TITLE_TEXT["column_chart"]
+
+
+def test_energy_legend_has_title_and_expected_labels(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [1000],
+            "commissioning_date": ["2020"],
+            "Gemeindeschluessel": ["12345"],
+            "energy_source_label": ["Photovoltaik"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(input_root / "plants.geojson", driver="GeoJSON")
+
+    centers = gpd.GeoDataFrame(
+        {
+            "ags5": ["12345"],
+            "state_slug": ["bayern"],
+            "kreis_name": ["A"],
+        },
+        geometry=[Point(1, 2)],
+        crs="EPSG:4326",
+    )
+    centers_path = tmp_path / "centers.geojson"
+    centers.to_file(centers_path, driver="GeoJSON")
+
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_DIR", out_dir)
+    monkeypatch.setattr(mod, "CENTERS_PATH", centers_path)
+
+    mod.main()
+
+    legend = gpd.read_file(out_dir / "de_energy_legend_points.geojson")
+
+    assert "legend_title" in set(legend["energy_type"])
+    assert mod.UNIFIED_TITLE_TEXT["energy_legend"] in set(legend["legend_label"])
+    assert {
+        "Photovoltaics",
+        "Onshore Wind Energy",
+        "Hydropower",
+        "Biogas",
+        "Battery",
+        "Others",
+    }.issubset(set(legend["legend_label"]))

@@ -480,3 +480,69 @@ def test_main_skips_bin_when_points_missing(tmp_path, monkeypatch):
 
     out_file = bin_dir / "thueringen_state_pie_2019_2020.geojson"
     assert not out_file.exists()
+
+
+
+def test_module_radius_range_matches_step1_5_legend():
+    assert mod.R_MIN_M == 8000.0
+    assert mod.R_MAX_M == 24000.0
+
+
+def test_pies_from_points_computes_power_gw_and_total_gw(tmp_path):
+    gdf = build_points_gdf(
+        total_kw=3_000_000,
+        pv_kw=1_000_000,
+        wind_kw=2_000_000,
+    )
+
+    out = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 3_000_000, out)
+
+    gout = gpd.read_file(out)
+
+    pv_row = gout[gout["energy_type"] == "pv_kw"].iloc[0]
+    wind_row = gout[gout["energy_type"] == "wind_kw"].iloc[0]
+
+    assert pv_row["power_gw"] == pytest.approx(1.0)
+    assert wind_row["power_gw"] == pytest.approx(2.0)
+    assert pv_row["total_gw"] == pytest.approx(3.0)
+    assert wind_row["total_gw"] == pytest.approx(3.0)
+
+
+def test_pies_from_points_radius_uses_configured_range(tmp_path):
+    gdf = build_points_gdf(
+        total_kw=1000,
+        pv_kw=1000,
+        wind_kw=0,
+    )
+
+    out = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 1000, out)
+
+    gout = gpd.read_file(out)
+
+    assert gout.iloc[0]["radius_m"] == pytest.approx(mod.R_MAX_M)
+
+
+def test_pies_from_points_keeps_none_state_name_when_column_exists(tmp_path):
+    gdf = build_points_gdf(state_name=None, extra_name="Fallback Name")
+
+    out = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 2000, out)
+
+    gout = gpd.read_file(out)
+    assert gout["name"].isna().all()
+
+
+def test_pies_from_points_keeps_empty_state_name_when_column_exists(tmp_path):
+    gdf = build_points_gdf(state_name="", extra_name="Fallback Name")
+
+    out = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 2000, out)
+
+    gout = gpd.read_file(out)
+    assert set(gout["name"].fillna("")) == {""}

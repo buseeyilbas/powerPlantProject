@@ -514,3 +514,163 @@ def test_main_writes_per_state_outputs(tmp_path, monkeypatch):
 
     assert (base / "de_bayern_landkreis_pie_2019_2020.geojson").exists()
     assert (base / "de_hessen_landkreis_pie_2019_2020.geojson").exists()
+
+def test_radius_constants_match_step2_3_manual_setup():
+    assert mod.R_MIN_M == 5000.0
+    assert mod.R_MAX_M == 30000.0
+
+
+def test_process_one_bin_carries_state_abbrev_to_outputs(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+    gdf["state_abbrev"] = ["BY"]
+
+    infile = bin_dir / "de_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    state_meta = {
+        "bayern": {
+            "min_total_kw": 0,
+            "max_total_kw": 2000,
+        }
+    }
+
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", state_meta)
+
+    out_all = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+    out_state = gpd.read_file(base / "de_bayern_landkreis_pie_2019_2020.geojson")
+
+    assert "state_abbrev" in out_all.columns
+    assert "state_abbrev" in out_state.columns
+    assert set(out_all["state_abbrev"]) == {"BY"}
+    assert set(out_state["state_abbrev"]) == {"BY"}
+
+
+def test_process_one_bin_missing_state_abbrev_becomes_empty_string(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+
+    infile = bin_dir / "de_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    state_meta = {
+        "bayern": {
+            "min_total_kw": 0,
+            "max_total_kw": 2000,
+        }
+    }
+
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", state_meta)
+
+    out = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+
+    assert "state_abbrev" in out.columns
+    assert set(out["state_abbrev"].fillna("")) == {""}
+
+
+def test_process_one_bin_groups_duplicate_rows_preserves_state_abbrev(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "state_slug": ["bayern", "bayern"],
+            "state_abbrev": ["BY", "BY"],
+            "kreis_key": ["A", "A"],
+            "year_bin_slug": ["2019_2020", "2019_2020"],
+            "year_bin_label": ["2019–2020", "2019–2020"],
+            "pv_kw": [500, 500],
+            "wind_kw": [0, 0],
+            "hydro_kw": [0, 0],
+            "battery_kw": [0, 0],
+            "biogas_kw": [0, 0],
+            "others_kw": [0, 0],
+            "total_kw": [500, 500],
+        },
+        geometry=[Point(10, 50), Point(10, 50)],
+        crs="EPSG:4326",
+    )
+
+    infile = bin_dir / "de_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    state_meta = {"bayern": {"min_total_kw": 0, "max_total_kw": 2000}}
+
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", state_meta)
+
+    out = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+
+    assert len(out) == 1
+    assert out.iloc[0]["power_kw"] == pytest.approx(1000.0)
+    assert out.iloc[0]["total_kw"] == pytest.approx(1000.0)
+    assert set(out["state_abbrev"]) == {"BY"}
+
+
+def test_process_one_bin_output_schema_contains_current_fields(tmp_path, monkeypatch):
+    base = tmp_path
+    bin_dir = base / "2019_2020"
+    bin_dir.mkdir(parents=True)
+
+    gdf = build_points_gdf(total_kw=1_500_000, pv_kw=1_000_000, wind_kw=500_000)
+    gdf["state_abbrev"] = ["BY"]
+
+    infile = bin_dir / "de_landkreis_pies_2019_2020.geojson"
+    gdf.to_file(infile, driver="GeoJSON")
+
+    state_meta = {"bayern": {"min_total_kw": 0, "max_total_kw": 2_000_000}}
+
+    monkeypatch.setattr(mod, "IN_DIR", base)
+    monkeypatch.setattr(mod, "OUT_DIR", base)
+
+    mod.process_one_bin("2019_2020", state_meta)
+
+    out = gpd.read_file(bin_dir / "de_landkreis_pie_2019_2020.geojson")
+
+    expected_columns = {
+        "name",
+        "state_slug",
+        "state_abbrev",
+        "energy_type",
+        "power_kw",
+        "power_gw",
+        "total_kw",
+        "total_gw",
+        "share",
+        "radius_m",
+        "order_id",
+        "label_anchor",
+        "year_bin",
+        "year_bin_slug",
+        "color_r",
+        "color_g",
+        "color_b",
+        "geometry",
+    }
+
+    assert expected_columns.issubset(set(out.columns))
+    assert set(out["energy_type"]) == {"pv_kw", "wind_kw"}
+    assert set(out["state_abbrev"]) == {"BY"}
+
+    pv = out[out["energy_type"] == "pv_kw"].iloc[0]
+    wind = out[out["energy_type"] == "wind_kw"].iloc[0]
+
+    assert pv["power_gw"] == pytest.approx(1.0)
+    assert wind["power_gw"] == pytest.approx(0.5)
+    assert pv["total_gw"] == pytest.approx(1.5)
+    assert wind["total_gw"] == pytest.approx(1.5)

@@ -30,6 +30,7 @@ def build_points_gdf(
     year_bin_label="2019–2020",
     year_bin_slug="2019_2020",
     state_number=None,
+    state_abbrev=None,
     extra_name=None,
 ):
     data = {
@@ -46,6 +47,8 @@ def build_points_gdf(
     }
     if state_number is not None:
         data["state_number"] = [state_number]
+    if state_abbrev is not None:
+        data["state_abbrev"] = [state_abbrev]
     if extra_name is not None:
         data["name"] = [extra_name]
 
@@ -116,19 +119,6 @@ def test_repulse_centers_moves_overlap():
     assert centers[0]["x"] != centers[1]["x"] or centers[0]["y"] != centers[1]["y"]
 
 
-# def test_repulse_centers_no_change_when_far():
-#     centers = [
-#         {"x": 0, "y": 0, "r": 10},
-#         {"x": 1000, "y": 1000, "r": 10},
-#     ]
-#     before = [(c["x"], c["y"]) for c in centers]
-
-#     mod.repulse_centers(centers)
-
-#     after = [(c["x"], c["y"]) for c in centers]
-#     assert after == before
-
-
 def test_pies_from_points_basic(tmp_path):
     gdf = build_points_gdf()
 
@@ -143,6 +133,8 @@ def test_pies_from_points_basic(tmp_path):
     assert len(out) == 2
     assert "energy_type" in out.columns
     assert set(out["energy_type"]) == {"pv_kw", "wind_kw"}
+    assert "power_gw" in out.columns
+    assert "total_gw" in out.columns
 
 
 def test_pies_from_points_empty_input(tmp_path):
@@ -184,26 +176,26 @@ def test_pies_from_points_sets_crs_when_missing(tmp_path):
     assert out.crs is not None
 
 
-# def test_pies_from_points_uses_name_fallback(tmp_path):
-#     gdf = build_points_gdf(state_name=None, extra_name="Fallback Name")
+def test_pies_from_points_keeps_none_state_name_when_column_exists(tmp_path):
+    gdf = build_points_gdf(state_name=None, extra_name="Fallback Name")
 
-#     out_path = tmp_path / "out.geojson"
+    out_path = tmp_path / "out.geojson"
 
-#     mod.pies_from_points(gdf, 0, 1000, out_path)
+    mod.pies_from_points(gdf, 0, 1000, out_path)
 
-#     out = gpd.read_file(out_path)
-#     assert set(out["name"]) == {"Fallback Name"}
+    out = gpd.read_file(out_path)
+    assert out["name"].isna().all()
 
 
-# def test_pies_from_points_uses_name_fallback_when_state_name_is_empty_string(tmp_path):
-#     gdf = build_points_gdf(state_name="", extra_name="Fallback Name")
+def test_pies_from_points_keeps_empty_state_name_when_column_exists(tmp_path):
+    gdf = build_points_gdf(state_name="", extra_name="Fallback Name")
 
-#     out_path = tmp_path / "out.geojson"
+    out_path = tmp_path / "out.geojson"
 
-#     mod.pies_from_points(gdf, 0, 1000, out_path)
+    mod.pies_from_points(gdf, 0, 1000, out_path)
 
-#     out = gpd.read_file(out_path)
-#     assert set(out["name"]) == {"Fallback Name"}
+    out = gpd.read_file(out_path)
+    assert set(out["name"].fillna("")) == {""}
 
 
 def test_pies_from_points_parses_state_number_to_int(tmp_path):
@@ -228,6 +220,45 @@ def test_pies_from_points_invalid_state_number_becomes_none(tmp_path):
     assert out["state_number"].isna().all()
 
 
+def test_pies_from_points_carries_state_abbrev(tmp_path):
+    gdf = build_points_gdf(state_name="Bayern", state_abbrev="BY")
+
+    out_path = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 1000, out_path)
+
+    out = gpd.read_file(out_path)
+    assert set(out["state_abbrev"]) == {"BY"}
+
+
+def test_pies_from_points_missing_state_abbrev_becomes_empty_string(tmp_path):
+    gdf = build_points_gdf(state_name="Bayern")
+
+    out_path = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 1000, out_path)
+
+    out = gpd.read_file(out_path)
+    assert set(out["state_abbrev"].fillna("")) == {""}
+
+
+def test_pies_from_points_computes_power_gw_and_total_gw(tmp_path):
+    gdf = build_points_gdf(total_kw=3_000_000, pv_kw=1_000_000, wind_kw=2_000_000)
+
+    out_path = tmp_path / "out.geojson"
+
+    mod.pies_from_points(gdf, 0, 3_000_000, out_path)
+
+    out = gpd.read_file(out_path)
+    pv_row = out[out["energy_type"] == "pv_kw"].iloc[0]
+    wind_row = out[out["energy_type"] == "wind_kw"].iloc[0]
+
+    assert pv_row["power_gw"] == pytest.approx(1.0)
+    assert wind_row["power_gw"] == pytest.approx(2.0)
+    assert pv_row["total_gw"] == pytest.approx(3.0)
+    assert wind_row["total_gw"] == pytest.approx(3.0)
+
+
 def test_pies_from_points_marks_biggest_slice_as_label_anchor(tmp_path):
     gdf = build_points_gdf(total_kw=1000, pv_kw=800, wind_kw=200)
 
@@ -241,45 +272,6 @@ def test_pies_from_points_marks_biggest_slice_as_label_anchor(tmp_path):
 
     assert pv_row["label_anchor"] == 1
     assert wind_row["label_anchor"] == 0
-
-
-# def test_pies_from_points_zero_parts_produce_no_features(tmp_path):
-#     gdf = build_points_gdf(
-#         total_kw=1000,
-#         pv_kw=0,
-#         wind_kw=0,
-#         hydro_kw=0,
-#         battery_kw=0,
-#         biogas_kw=0,
-#         others_kw=0,
-#     )
-
-#     out_path = tmp_path / "out.geojson"
-
-#     n = mod.pies_from_points(gdf, 0, 1000, out_path)
-
-#     assert n == 0
-#     assert not out_path.exists()
-
-
-# def test_pies_from_points_zero_parts_removes_existing_output_file(tmp_path):
-#     gdf = build_points_gdf(
-#         total_kw=1000,
-#         pv_kw=0,
-#         wind_kw=0,
-#         hydro_kw=0,
-#         battery_kw=0,
-#         biogas_kw=0,
-#         others_kw=0,
-#     )
-
-#     out_path = tmp_path / "out.geojson"
-#     out_path.write_text("old content", encoding="utf-8")
-
-#     n = mod.pies_from_points(gdf, 0, 1000, out_path)
-
-#     assert n == 0
-#     assert not out_path.exists()
 
 
 def test_pies_from_points_calls_repulse_when_centers_not_fixed(tmp_path, monkeypatch):
@@ -364,7 +356,7 @@ def test_main_basic_per_bin_scaling(tmp_path, monkeypatch):
     pts = bin_dir / "de_state_pies_2019_2020.geojson"
     meta = bin_dir / "state_pie_style_meta_2019_2020.json"
 
-    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0, state_abbrev="BY")
     gdf.to_file(pts, driver="GeoJSON")
 
     meta.write_text(
@@ -383,6 +375,7 @@ def test_main_basic_per_bin_scaling(tmp_path, monkeypatch):
     gout = gpd.read_file(out)
     assert len(gout) == 1
     assert set(gout["energy_type"]) == {"pv_kw"}
+    assert set(gout["state_abbrev"]) == {"BY"}
 
 
 def test_main_with_global_meta(tmp_path, monkeypatch):
@@ -394,7 +387,7 @@ def test_main_with_global_meta(tmp_path, monkeypatch):
     meta = bin_dir / "state_pie_style_meta_2019_2020.json"
     global_meta = base / "_GLOBAL_style_meta.json"
 
-    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0)
+    gdf = build_points_gdf(total_kw=1000, pv_kw=1000, wind_kw=0, state_abbrev="BY")
     gdf.to_file(pts, driver="GeoJSON")
 
     meta.write_text(
@@ -436,6 +429,7 @@ def test_main_computes_global_scale_when_meta_missing(tmp_path, monkeypatch):
         wind_kw=0,
         year_bin_slug="2019_2020",
         year_bin_label="2019–2020",
+        state_abbrev="BY",
     )
     gdf2 = build_points_gdf(
         total_kw=3000,
@@ -443,6 +437,7 @@ def test_main_computes_global_scale_when_meta_missing(tmp_path, monkeypatch):
         wind_kw=3000,
         year_bin_slug="2021_2022",
         year_bin_label="2021–2022",
+        state_abbrev="BY",
     )
 
     gdf1.to_file(pts1, driver="GeoJSON")
@@ -468,6 +463,11 @@ def test_main_computes_global_scale_when_meta_missing(tmp_path, monkeypatch):
 
     assert out1.exists()
     assert out2.exists()
+
+    gout1 = gpd.read_file(out1)
+    gout2 = gpd.read_file(out2)
+    assert set(gout1["state_abbrev"]) == {"BY"}
+    assert set(gout2["state_abbrev"]) == {"BY"}
 
 
 def test_main_skips_bin_when_inputs_missing(tmp_path, monkeypatch):

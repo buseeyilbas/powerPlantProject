@@ -279,6 +279,10 @@ def test_main_completes_with_unknown_years_filtered_out(tmp_path, monkeypatch):
     assert not (out_base / "de_yearly_totals.json").exists()
     assert not (out_base / "de_yearly_totals_chart.geojson").exists()
     assert not any(out_base.glob("*/de_state_pies_*.geojson"))
+    assert not (out_base / "de_energy_legend_points.geojson").exists()
+    assert not (out_base / "de_pie_size_legend_circles.geojson").exists()
+    assert not (out_base / "de_pie_size_legend_labels.geojson").exists()
+    assert not (out_base / "de_legend_frames.geojson").exists()
 
 
 def test_main_basic_flow_creates_outputs(tmp_path, monkeypatch):
@@ -322,6 +326,9 @@ def test_main_basic_flow_creates_outputs(tmp_path, monkeypatch):
     col_bars = out_base / "de_state_totals_columnChart_bars.geojson"
     col_labels = out_base / "de_state_totals_columnChart_labels.geojson"
     legend = out_base / "de_energy_legend_points.geojson"
+    pie_legend_circles = out_base / "de_pie_size_legend_circles.geojson"
+    pie_legend_labels = out_base / "de_pie_size_legend_labels.geojson"
+    legend_frames = out_base / "de_legend_frames.geojson"
 
     assert pts_path.exists()
     assert meta_path.exists()
@@ -332,10 +339,14 @@ def test_main_basic_flow_creates_outputs(tmp_path, monkeypatch):
     assert col_bars.exists()
     assert col_labels.exists()
     assert legend.exists()
+    assert pie_legend_circles.exists()
+    assert pie_legend_labels.exists()
+    assert legend_frames.exists()
 
     pts = gpd.read_file(pts_path)
     assert len(pts) == 1
     assert pts.iloc[0]["state_name"] == "Bayern"
+    assert pts.iloc[0]["state_abbrev"] == "BY"
     assert pts.iloc[0]["pv_kw"] == 1000
     assert pts.iloc[0]["total_kw"] == 1000
     assert pts.iloc[0].geometry.x == pytest.approx(11.0)
@@ -344,11 +355,80 @@ def test_main_basic_flow_creates_outputs(tmp_path, monkeypatch):
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["is_cumulative"] is True
     assert meta["name_field"] == "state_name"
+    assert meta["state_abbrev_field"] == "state_abbrev"
     assert "min_total_kw" in meta
     assert "max_total_kw" in meta
 
     gmeta = json.loads(global_meta.read_text(encoding="utf-8"))
     assert gmeta["min_total_kw"] <= gmeta["max_total_kw"]
+    assert gmeta["radius_min_m"] == mod.LEGEND_R_MIN_M
+    assert gmeta["radius_max_m"] == mod.LEGEND_R_MAX_M
+
+    legend_gdf = gpd.read_file(legend)
+    assert "legend_title" in set(legend_gdf["energy_type"])
+    assert "Energy Type Color Legend" in set(legend_gdf["legend_label"])
+
+    pie_lbl_gdf = gpd.read_file(pie_legend_labels)
+    assert "title" in set(pie_lbl_gdf["kind"])
+    assert "Pie Size Legend" in set(pie_lbl_gdf["legend_label"])
+
+    circles_gdf = gpd.read_file(pie_legend_circles)
+    assert len(circles_gdf) == len(mod.PIE_LEGEND_VALUES_GW)
+    assert set(circles_gdf["legend_gw"]) == set(float(v) for v in mod.PIE_LEGEND_VALUES_GW)
+
+    frames_gdf = gpd.read_file(legend_frames)
+    assert set(frames_gdf["frame_type"]) == {"energy_legend", "pie_size_legend"}
+
+
+def test_column_chart_labels_use_state_abbrev(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    out_base = tmp_path / "out"
+    fixed = tmp_path / "fixed"
+
+    state_dir = input_root / "bayern"
+    state_dir.mkdir(parents=True)
+    fixed.mkdir()
+
+    write_point_centers(
+        fixed / "de_state_pies.geojson",
+        [{"state_name": "Bayern", "x": 11.0, "y": 48.5}],
+    )
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "power_kw": [1000],
+            "commissioning_date": ["2020-01-01"],
+            "energy_source_label": ["solar"],
+        },
+        geometry=[Point(10, 50)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(state_dir / "plants.geojson", driver="GeoJSON")
+
+    monkeypatch.setattr(mod, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(mod, "OUT_BASE", out_base)
+    monkeypatch.setattr(mod, "BASE_FIXED", fixed)
+
+    mod.main()
+
+    labels = gpd.read_file(out_base / "de_state_totals_columnChart_labels.geojson")
+
+    state_rows = labels[
+        (labels["kind"] == "state_label") &
+        (labels["state_number"] == 2)
+    ]
+    assert len(state_rows) >= 1
+    assert set(state_rows["state_abbrev"]) == {"BY"}
+
+    value_rows = labels[
+        (labels["kind"] == "value_label") &
+        (labels["state_number"] == 2)
+    ]
+    assert len(value_rows) >= 1
+
+    title_rows = labels[labels["kind"] == "title"]
+    assert len(title_rows) == 1
+    assert title_rows.iloc[0]["year_bin_label"] == mod.UNIFIED_TITLE_TEXT["column_chart"]
 
 
 def test_main_uses_polygon_baseline_before_point_fallback(tmp_path, monkeypatch):
